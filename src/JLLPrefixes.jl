@@ -87,7 +87,7 @@ function collect_artifact_paths(dependencies::Vector{PkgSpec};
         # in the manifest but aren't direct dependencies or dependencies of other JLLS.
         installed_jll_uuids = collect_jll_uuids(ctx.env.manifest, dependency_uuids)
         installed_jlls = [
-            Pkg.Types.PackageSpec(;
+            PkgSpec(;
                 name=pkg.name,
                 uuid,
                 tree_hash=pkg.tree_hash,
@@ -95,7 +95,7 @@ function collect_artifact_paths(dependencies::Vector{PkgSpec};
         ]
 
         # Check for stdlibs lurking in the installed JLLs
-        stdlib_pkgspecs = PackageSpec[]
+        stdlib_pkgspecs = PkgSpec[]
         for dep in installed_jlls
             # If the `tree_hash` is `nothing`, then this JLL was treated as an stdlib
             if dep.tree_hash === nothing
