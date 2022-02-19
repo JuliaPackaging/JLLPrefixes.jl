@@ -137,7 +137,9 @@ end
 
             # Ensure that a bunch of tools we expect to be installed are, in fact, installed
             for tool in ("ffmpeg", "bzcat", "fc-cache", "iconv", "x264", "x265", "xslt-config")
-                @test isfile(joinpath(prefix, "bin", "$(tool)$(exe)"))
+                # Use `eval` so that the test failure shows which tools fail
+                tool_name = string(tool, exe)
+                @eval @test isfile(joinpath($(prefix), "bin", $(tool_name)))
             end
 
             run(`$(joinpath(prefix, "bin", "ffmpeg$(exe)")) -version`)
