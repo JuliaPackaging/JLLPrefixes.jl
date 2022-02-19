@@ -104,6 +104,14 @@ using JLLPrefixes: PkgSpec
         @test length(artifact_paths) == 2
         @test sort([p.name for p in keys(artifact_paths)]) == ["GMP_jll", "MPFR_jll"]
     end
+
+    # Test adding something that doesn't exist on a certain platform
+    @testset "Platform Incompatibility" begin
+        @test_logs (:warn, r"Dependency Libuuid_jll does not have a mapping for artifact Libuuid for platform x86_64-apple-darwin") begin
+            artifact_paths = collect_artifact_paths(["Libuuid_jll"]; platform=Platform("x86_64", "macos"), verbose=true)
+            @test isempty(artifact_paths)
+        end
+    end
 end
 
 exe = ""
