@@ -129,7 +129,7 @@ end
             # Ensure that a bunch of tools we expect to be installed are, in fact, installed
             for tool in ("ffmpeg", "bzcat", "fc-cache", "iconv", "x264", "x265", "xslt-config")
                 @test isfile(joinpath(prefix, "bin", "$(tool)$(exe)"))
-                @test isfile(readlink(joinpath(prefix, "bin", "$(tool)$(exe)")))
+                @test isfile(abspath(joinpath(prefix, "bin", "$(tool)$(exe)")))
             end
         end
     end
