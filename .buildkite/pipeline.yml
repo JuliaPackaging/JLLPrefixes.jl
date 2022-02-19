@@ -16,3 +16,12 @@ steps:
     agents:
       queue: "juliaecosystem"
       os: "linux"
+
+  - label: ":macos: :julia: Run tests on v1"
+    plugins:
+      - JuliaCI/julia#f6aec323319a1e7e5a9c796df00479489ad357df:
+          version: '1'
+      - JuliaCI/julia-test#v1:
+    agents:
+      queue: "juliaecosystem"
+      os: "macos"
