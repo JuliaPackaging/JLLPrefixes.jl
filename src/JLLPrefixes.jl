@@ -142,7 +142,10 @@ function collect_artifact_paths(dependencies::Vector{PkgSpec};
             # is also installed.  It may not be the case for lazy artifacts.
             meta = artifact_meta(dep.name[1:end-4], artifacts_toml; platform=platform)
             if meta === nothing
-                @warn("Dependency $(dep.name) does not have a mapping for artifact $(dep.name[1:end-4]) for platform $(triplet(platform))")
+                # This only gets printed if we're verbose, as this can be kind of common
+                if verbose
+                    @warn("Dependency $(dep.name) does not have a mapping for artifact $(dep.name[1:end-4]) for platform $(triplet(platform))")
+                end
                 continue
             end
 

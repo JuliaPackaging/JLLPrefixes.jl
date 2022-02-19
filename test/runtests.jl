@@ -14,7 +14,7 @@ using JLLPrefixes: PkgSpec
 
     @testset "Zstd_jll (native)" begin
         # Start with a simple JLL with no dependencies
-        artifact_paths = collect_artifact_paths(["Zstd_jll"])
+        artifact_paths = collect_artifact_paths(["Zstd_jll"]; verbose=true)
 
         # There was only one JLL downloaded, and it was Zstd_jll
         @test length(artifact_paths) == 1
