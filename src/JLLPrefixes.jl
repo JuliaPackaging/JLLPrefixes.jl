@@ -87,7 +87,7 @@ function collect_artifact_paths(dependencies::Vector{PkgSpec};
         # in the manifest but aren't direct dependencies or dependencies of other JLLS.
         installed_jll_uuids = collect_jll_uuids(ctx.env.manifest, dependency_uuids)
         installed_jlls = [
-            Pkg.Types.PackageSpec(;
+            PkgSpec(;
                 name=pkg.name,
                 uuid,
                 tree_hash=pkg.tree_hash,
@@ -95,7 +95,7 @@ function collect_artifact_paths(dependencies::Vector{PkgSpec};
         ]
 
         # Check for stdlibs lurking in the installed JLLs
-        stdlib_pkgspecs = PackageSpec[]
+        stdlib_pkgspecs = PkgSpec[]
         for dep in installed_jlls
             # If the `tree_hash` is `nothing`, then this JLL was treated as an stdlib
             if dep.tree_hash === nothing
@@ -142,7 +142,10 @@ function collect_artifact_paths(dependencies::Vector{PkgSpec};
             # is also installed.  It may not be the case for lazy artifacts.
             meta = artifact_meta(dep.name[1:end-4], artifacts_toml; platform=platform)
             if meta === nothing
-                @warn("Dependency $(dep.name) does not have a mapping for artifact $(dep.name[1:end-4]) for platform $(triplet(platform))")
+                # This only gets printed if we're verbose, as this can be kind of common
+                if verbose
+                    @warn("Dependency $(dep.name) does not have a mapping for artifact $(dep.name[1:end-4]) for platform $(triplet(platform))")
+                end
                 continue
             end
 

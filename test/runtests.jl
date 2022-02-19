@@ -14,7 +14,7 @@ using JLLPrefixes: PkgSpec
 
     @testset "Zstd_jll (native)" begin
         # Start with a simple JLL with no dependencies
-        artifact_paths = collect_artifact_paths(["Zstd_jll"])
+        artifact_paths = collect_artifact_paths(["Zstd_jll"]; verbose=true)
 
         # There was only one JLL downloaded, and it was Zstd_jll
         @test length(artifact_paths) == 1
@@ -104,6 +104,14 @@ using JLLPrefixes: PkgSpec
         @test length(artifact_paths) == 2
         @test sort([p.name for p in keys(artifact_paths)]) == ["GMP_jll", "MPFR_jll"]
     end
+
+    # Test adding something that doesn't exist on a certain platform
+    @testset "Platform Incompatibility" begin
+        @test_logs (:warn, r"Dependency Libuuid_jll does not have a mapping for artifact Libuuid for platform x86_64-apple-darwin") begin
+            artifact_paths = collect_artifact_paths(["Libuuid_jll"]; platform=Platform("x86_64", "macos"), verbose=true)
+            @test isempty(artifact_paths)
+        end
+    end
 end
 
 exe = ""
@@ -121,7 +129,7 @@ end
             # Ensure that a bunch of tools we expect to be installed are, in fact, installed
             for tool in ("ffmpeg", "bzcat", "fc-cache", "iconv", "x264", "x265", "xslt-config")
                 @test isfile(joinpath(prefix, "bin", "$(tool)$(exe)"))
-                @test isfile(readlink(joinpath(prefix, "bin", "$(tool)$(exe)")))
+                @test isfile(abspath(joinpath(prefix, "bin", "$(tool)$(exe)")))
             end
         end
     end
@@ -137,7 +145,9 @@ end
 
             # Ensure that a bunch of tools we expect to be installed are, in fact, installed
             for tool in ("ffmpeg", "bzcat", "fc-cache", "iconv", "x264", "x265", "xslt-config")
-                @test isfile(joinpath(prefix, "bin", "$(tool)$(exe)"))
+                # Use `eval` so that the test failure shows which tools fail
+                tool_name = string(tool, exe)
+                @eval @test isfile(joinpath($(prefix), "bin", $(tool_name)))
             end
 
             run(`$(joinpath(prefix, "bin", "ffmpeg$(exe)")) -version`)

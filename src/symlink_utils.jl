@@ -101,11 +101,7 @@ function copy_tree(dest::AbstractString, src::AbstractString; verbose::Bool=true
 
                 # Find source artifact that this pre-existent destination file belongs to
                 if verbose
-                    dest_artifact_source = realpath(dest_file)
-                    while occursin("artifacts", dest_artifact_source) && basename(dirname(dest_artifact_source)) != "artifacts"
-                        dest_artifact_source = dirname(dest_artifact_source)
-                    end
-                    @warn("Symlink $(f) from artifact $(basename(src)) already exists in artifact $(basename(dest_artifact_source))")
+                    @warn("File $(f) from $(dirname(src_file)) already exists in $(dest)")
                 end
             else
                 # If it's already a symlink, copy over the exact symlink target

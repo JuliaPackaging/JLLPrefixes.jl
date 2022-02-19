@@ -11,11 +11,11 @@ Pkg = "44cfe95a-1eb2-52ea-b672-e2afdf69b78f"
 SHA = "ea8e919c-243c-51af-8825-aaa63cd721ce"
 Scratch = "6c6a2e73-6563-6170-7368-637461726353"
 
+[compat]
+julia = "1.7"
+
 [extras]
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
-
-[compat]
-julia = "1.6"
 
 [targets]
 test = ["Test"]
