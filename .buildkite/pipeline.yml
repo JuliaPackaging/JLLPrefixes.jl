@@ -19,7 +19,7 @@ steps:
 
   - label: ":macos: :julia: Run tests on v1"
     plugins:
-      - JuliaCI/julia#f6aec323319a1e7e5a9c796df00479489ad357df:
+      - JuliaCI/julia#v1:
           version: '1'
       - JuliaCI/julia-test#v1:
     agents:
