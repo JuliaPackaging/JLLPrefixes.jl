@@ -60,7 +60,7 @@ function collect_artifact_metas(dependencies::Vector{PkgSpec};
     # We're going to create a project and install all dependent packages within
     # it, then create symlinks from those installed products to our build prefix
     deps_project = joinpath(project_dir, "Project.toml")
-    Pkg.activate(deps_project) do
+    with_no_pkg_handrails() do; Pkg.activate(deps_project) do
         ctx = Pkg.Types.Context(;julia_version)
         pkg_io = verbose ? stdout : devnull
 
@@ -165,7 +165,7 @@ function collect_artifact_metas(dependencies::Vector{PkgSpec};
             end
             push!(artifact_metas[dep], meta)
         end
-    end
+    end; end
 
     return artifact_metas
 end
