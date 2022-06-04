@@ -23,6 +23,22 @@ elseif isdefined(Pkg, :RegistryHandling) && isdefined(Pkg.RegistryHandling, :reg
     const registry_info = Pkg.RegistryHandling.registry_info
 end
 
+if isdefined(Pkg, :respect_sysimage_versions)
+    function with_no_pkg_handrails(f::Function)
+        old_respect_sysimage_versions = Pkg.RESPECT_SYSIMAGE_VERSIONS[]
+        Pkg.respect_sysimage_versions(false)
+        try
+            return f()
+        finally
+            Pkg.respect_sysimage_versions(old_respect_sysimage_versions)
+        end
+    end
+else
+    function with_no_pkg_handrails(f::Function)
+        return f()
+    end
+end
+
 """
     collect_jll_uuids(manifest::Pkg.Types.Manifest, dependencies::Set{UUID})
 

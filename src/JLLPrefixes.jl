@@ -1,7 +1,7 @@
 module JLLPrefixes
 using Pkg, Pkg.Artifacts, Base.BinaryPlatforms
 
-export collect_artifact_paths, symlink_artifact_paths, unsymlink_artifact_paths, copy_artifact_paths
+export collect_artifact_metas, collect_artifact_paths, symlink_artifact_paths, unsymlink_artifact_paths, copy_artifact_paths
 
 # Bring in helpers for git repositories
 include("libgit2_utils.jl")
@@ -16,14 +16,14 @@ include("symlink_utils.jl")
 const _registry_updated = Ref(false)
 
 """
-    collect_artifact_paths(dependencies::Vector;
+    collect_artifact_metas(dependencies::Vector;
                            platform = HostPlatform(),
                            verbose = false)
 
-Collect all (recursive) JLL dependency artifact paths for the given `platform`.  Returns
-a dictionary mapping each (recursive) dependency to its set of artifact paths, which
-can then be flattened and given to other tools, such as `symlink_artifact_paths()` or
-`copy_artifact_paths()`.
+Collect (recursive) JLL dependency artifact metadata for the given `platform`.  Returns
+a dictionary mapping each (recursive) dependency to its set of artifact metas, which
+can then be transformed or flattened and given to other tools, such as
+`symlink_artifact_paths()` or `copy_artifact_paths()`.
 
 Because the dependencies can be specified as a `PkgSpec`, it is possible to request
 particular versions of a package just as you would with `Pkg.add()`.
@@ -32,7 +32,7 @@ The `platform` keyword argument allows for collecting artifacts for a foreign pl
 as well as a different Julia version.  This is especially useful for packages that are
 stdlibs, and thus locked to a single version based on the Julia version.
 """
-function collect_artifact_paths(dependencies::Vector{PkgSpec};
+function collect_artifact_metas(dependencies::Vector{PkgSpec};
                                 platform::AbstractPlatform = HostPlatform(),
                                 project_dir::AbstractString = mktempdir(),
                                 update_registry::Bool = _registry_updated[],
@@ -55,12 +55,12 @@ function collect_artifact_paths(dependencies::Vector{PkgSpec};
     end
 
     # This is what we will eventually return
-    artifact_paths = Dict{PkgSpec, Vector{String}}()
+    artifact_metas = Dict{PkgSpec, Vector{Dict}}()
 
     # We're going to create a project and install all dependent packages within
     # it, then create symlinks from those installed products to our build prefix
     deps_project = joinpath(project_dir, "Project.toml")
-    Pkg.activate(deps_project) do
+    with_no_pkg_handrails() do; Pkg.activate(deps_project) do
         ctx = Pkg.Types.Context(;julia_version)
         pkg_io = verbose ? stdout : devnull
 
@@ -154,25 +154,42 @@ function collect_artifact_paths(dependencies::Vector{PkgSpec};
             # artifact).  This is currently how JLLs work, but it may not always be the case!
             # We need to come up with some way of allowing the user to specify _which_ artifacts
             # they want downloaded!
-            ensure_artifact_installed(dep.name[1:end-4], meta, artifacts_toml; platform=platform)
+            ensure_artifact_installed(dep.name[1:end-4], meta, artifacts_toml)
 
             # Copy the artifact from the global installation location into this build-specific artifacts collection
             src_path = Pkg.Artifacts.artifact_path(Base.SHA1(meta["git-tree-sha1"]))
             
             # Keep track of our dep paths for later symlinking
-            if !haskey(artifact_paths, dep)
-                artifact_paths[dep] = String[]
+            if !haskey(artifact_metas, dep)
+                artifact_metas[dep] = Dict[]
             end
-            push!(artifact_paths[dep], src_path)
+            push!(artifact_metas[dep], meta)
         end
-    end
+    end; end
 
-    return artifact_paths
+    return artifact_metas
 end
-function collect_artifact_paths(pkg_names::Vector{<:AbstractString}; kwargs...)
-    return collect_artifact_paths(
+function collect_artifact_metas(pkg_names::Vector{<:AbstractString}; kwargs...)
+    return collect_artifact_metas(
         [PackageSpec(; name) for name in pkg_names];
         kwargs...
+    )
+end
+
+"""
+    collect_artifact_paths(dependencies::Vector;
+                           platform = HostPlatform(),
+                           verbose = false)
+
+A convenience wrapper around `collect_artifact_metas()` that will peel the
+`meta` objects and return a vector of paths for each package returned.
+"""
+function collect_artifact_paths(args...; kwargs...)
+    meta2path(meta) = Pkg.Artifacts.artifact_path(Base.SHA1(meta["git-tree-sha1"]))
+
+    meta_mappings = collect_artifact_metas(args...; kwargs...)
+    return Dict{PkgSpec,Vector{String}}(
+        pkg => [meta2path(m) for m in metas] for (pkg, metas) in meta_mappings
     )
 end
 

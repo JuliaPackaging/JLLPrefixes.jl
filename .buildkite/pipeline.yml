@@ -7,6 +7,7 @@ steps:
     agents:
       queue: "juliaecosystem"
       os: "linux"
+      arch: "x86_64"
 
   - label: ":linux: :julia: Run tests on v1"
     plugins:
@@ -16,6 +17,7 @@ steps:
     agents:
       queue: "juliaecosystem"
       os: "linux"
+      arch: "x86_64"
 
   - label: ":macos: :julia: Run tests on v1"
     plugins:
@@ -25,3 +27,15 @@ steps:
     agents:
       queue: "juliaecosystem"
       os: "macos"
+      arch: "x86_64"
+
+  - label: ":linux: :julia: Run tests on nightly"
+    plugins:
+      - JuliaCI/julia#v1:
+          version: 'nightly'
+      - JuliaCI/julia-test#v1:
+    agents:
+      queue: "juliaecosystem"
+      os: "linux"
+      arch: "x86_64"
+    soft_fail: "true"
