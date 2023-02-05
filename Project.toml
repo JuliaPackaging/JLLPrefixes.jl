@@ -14,7 +14,7 @@ Scratch = "6c6a2e73-6563-6170-7368-637461726353"
 
 [compat]
 Scratch = "1"
-julia = "1.7"
+julia = "1.8"
 HistoricalStdlibVersions = "1"
 
 [extras]
