@@ -149,15 +149,15 @@ function get_addable_spec(name::AbstractString, version::VersionNumber;
     )
 end
 
-# We only want to update the registry once per run
-const _registry_updated = Ref{Bool}(false)
+# We only want to update the registry of each depot once per run
+const _updated_depots = Set{String}()
 function update_registry(outs = stdout)
-    if !_registry_updated[]
+    if Pkg.depots1() ∉ _updated_depots
         Pkg.Registry.update(
             [Pkg.RegistrySpec(uuid = "23338594-aafe-5451-b93e-139f81909106")];
             io=outs,
         )
-        _registry_updated[] = true
+        push!(_updated_depots, Pkg.depots1())
     end
 end
 
