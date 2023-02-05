@@ -12,6 +12,9 @@ include("pkg_utils.jl")
 # Bring in helpers to deal with symlink nests
 include("symlink_utils.jl")
 
+function __init__()
+    update_pkg_historical_stdlibs()
+end
 
 """
     collect_artifact_metas(dependencies::Vector;

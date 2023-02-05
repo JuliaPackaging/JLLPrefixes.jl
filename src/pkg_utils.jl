@@ -1,4 +1,4 @@
-using Pkg
+using Pkg, HistoricalStdlibVersions
 using Base: UUID
 
 # Pkg.PackageSpec return different types in different Julia versions so...
@@ -159,4 +159,11 @@ function update_registry(outs = stdout)
         )
         _registry_updated[] = true
     end
+end
+
+# We now have more up-to-date information on what the historical stdlibs are
+# than Pkg does (and indeed, newer versions require us to do this)
+function update_pkg_historical_stdlibs()
+    append!(empty!(Pkg.Types.STDLIBS_BY_VERSION), HistoricalStdlibVersions.STDLIBS_BY_VERSION)
+    return nothing
 end
