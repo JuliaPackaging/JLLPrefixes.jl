@@ -1,7 +1,7 @@
 module JLLPrefixes
 using Pkg, Pkg.Artifacts, Base.BinaryPlatforms
 
-export collect_artifact_metas, collect_artifact_paths, symlink_artifact_paths, unsymlink_artifact_paths, copy_artifact_paths
+export collect_artifact_metas, collect_artifact_paths, symlink_artifact_paths, unsymlink_artifact_paths, copy_artifact_paths, hardlink_artifact_paths
 
 # Bring in helpers for git repositories
 include("libgit2_utils.jl")
@@ -242,6 +242,15 @@ function copy_artifact_paths(dest::AbstractString, artifact_paths::Vector{String
 end
 function copy_artifact_paths(dest::AbstractString, artifact_paths::Dict{PkgSpec, Vector{String}})
     return copy_artifact_paths(dest, flatten_artifact_paths(artifact_paths))
+end
+
+function hardlink_artifact_paths(dest::AbstractString, artifact_paths::Vector{String})
+    for artifact_path in artifact_paths
+        hardlink_tree(dest, artifact_path)
+    end
+end
+function hardlink_artifact_paths(dest::AbstractString, artifact_paths::Dict{PkgSpec, Vector{String}})
+    return hardlink_artifact_paths(dest, flatten_artifact_paths(artifact_paths))
 end
 
 end # module JLLPrefixes
