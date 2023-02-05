@@ -12,8 +12,6 @@ include("pkg_utils.jl")
 # Bring in helpers to deal with symlink nests
 include("symlink_utils.jl")
 
-# Only update the registry once per session, by default
-const _registry_updated = Ref(false)
 
 """
     collect_artifact_metas(dependencies::Vector;
@@ -35,7 +33,6 @@ stdlibs, and thus locked to a single version based on the Julia version.
 function collect_artifact_metas(dependencies::Vector{PkgSpec};
                                 platform::AbstractPlatform = HostPlatform(),
                                 project_dir::AbstractString = mktempdir(),
-                                update_registry::Bool = _registry_updated[],
                                 verbose::Bool = false)
     # We occasionally generate "illegal" package specs, where we provide both version and tree hash.
     # we trust the treehash over the version, so drop the version for any that exists here:
@@ -65,13 +62,7 @@ function collect_artifact_metas(dependencies::Vector{PkgSpec};
         pkg_io = verbose ? stdout : devnull
 
         # Update registry first, in case the jll packages we're looking for have just been registered/updated
-        if update_registry
-            Pkg.Registry.update(
-                [Pkg.RegistrySpec(uuid = "23338594-aafe-5451-b93e-139f81909106")];
-                io=pkg_io,
-            )
-            _registry_updated[] = true
-        end
+        update_registry(pkg_io)
 
         # Add all dependencies to our project
         Pkg.add(ctx, dependencies; platform=platform, io=pkg_io)

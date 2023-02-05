@@ -150,14 +150,13 @@ function get_addable_spec(name::AbstractString, version::VersionNumber;
 end
 
 # We only want to update the registry once per run
-registry_updated = false
-function update_registry(outs = stdout, )
-    global registry_updated
-    if !registry_updated
+const _registry_updated = Ref{Bool}(false)
+function update_registry(outs = stdout)
+    if !_registry_updated[]
         Pkg.Registry.update(
             [Pkg.RegistrySpec(uuid = "23338594-aafe-5451-b93e-139f81909106")];
             io=outs,
         )
-        registry_updated = true
+        _registry_updated[] = true
     end
 end
