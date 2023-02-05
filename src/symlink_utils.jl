@@ -42,7 +42,7 @@ function symlink_tree(dest::AbstractString, src::AbstractString; verbose::Bool=t
                     symlink(readlink(src_file), dest_file)
                 else
                     # Otherwise, point it at the proper location
-                    symlink(relpath(src_file, dest_file), dest_file)
+                    symlink(relpath(src_file, dirname(dest_file)), dest_file)
                 end
             end
         end
