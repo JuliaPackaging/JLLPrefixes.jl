@@ -41,7 +41,7 @@ function collect_artifact_metas(dependencies::Vector{PkgSpec};
     # we trust the treehash over the version, so drop the version for any that exists here:
     function filter_redundant_version(p::PkgSpec)
         if p.version !== nothing && p.tree_hash !== nothing
-            return Pkg.Types.PackageSpec(;name=p.name, tree_hash=p.tree_hash, repo=p.repo)
+            return Pkg.Types.PackageSpec(;name=p.name, tree_hash=p.tree_hash, repo=p.repo, url=p.url)
         end
         return p
     end
