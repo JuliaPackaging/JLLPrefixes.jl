@@ -42,7 +42,7 @@ function symlink_tree(dest::AbstractString, src::AbstractString; verbose::Bool=t
                     symlink(readlink(src_file), dest_file)
                 else
                     # Otherwise, point it at the proper location
-                    symlink(relpath(src_file, dest_file), dest_file)
+                    symlink(relpath(src_file, dirname(dest_file)), dest_file)
                 end
             end
         end
@@ -106,6 +106,49 @@ function copy_tree(dest::AbstractString, src::AbstractString; verbose::Bool=true
             else
                 # If it's already a symlink, copy over the exact symlink target
                 cp(src_file, dest_file)
+            end
+        end
+    end
+end
+
+
+function hardlink_tree(dest::AbstractString, src::AbstractString; verbose::Bool=true)
+    for (root, dirs, files) in walkdir(src)
+        # Create all directories
+        for d in dirs
+            d_path = joinpath(root, d)
+            dest_dir = joinpath(dest, relpath(root, src), d)
+            if ispath(dest_dir) && !isdir(realpath(dest_dir))
+                # We can't create a directory if the destination exists and
+                # is not a directory or a symlink to a directory.
+                error("Directory $(d) from artifact $(basename(src)) already exists on disk and is not a directory")
+            end
+            mkpath(dest_dir)
+        end
+
+        # Hardlink all files
+        for f in files
+            src_file = joinpath(root, f)
+            dest_file = joinpath(dest, relpath(root, src), f)
+            if isfile(dest_file)
+                # Ugh, destination file already exists.  If source and destination files
+                # have the same size and SHA256 hash, just move on, otherwise issue a
+                # warning.
+                if filesize(src_file) == filesize(dest_file)
+                    src_file_hash = open(io -> bytes2hex(sha256(io)), src_file, "r")
+                    dest_file_hash = open(io -> bytes2hex(sha256(io)), dest_file, "r")
+                    if src_file_hash == dest_file_hash
+                        continue
+                    end
+                end
+
+                # Find source artifact that this pre-existent destination file belongs to
+                if verbose
+                    @warn("File $(f) from $(dirname(src_file)) already exists in $(dest)")
+                end
+            else
+                # If it's already a symlink, copy over the exact symlink target
+                hardlink(src_file, dest_file)
             end
         end
     end

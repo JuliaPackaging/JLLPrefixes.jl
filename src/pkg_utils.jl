@@ -1,4 +1,4 @@
-using Pkg
+using Pkg, HistoricalStdlibVersions
 using Base: UUID
 
 # Pkg.PackageSpec return different types in different Julia versions so...
@@ -149,15 +149,21 @@ function get_addable_spec(name::AbstractString, version::VersionNumber;
     )
 end
 
-# We only want to update the registry once per run
-registry_updated = false
-function update_registry(outs = stdout, )
-    global registry_updated
-    if !registry_updated
+# We only want to update the registry of each depot once per run
+const _updated_depots = Set{String}()
+function update_registry(outs = stdout)
+    if Pkg.depots1() ∉ _updated_depots
         Pkg.Registry.update(
             [Pkg.RegistrySpec(uuid = "23338594-aafe-5451-b93e-139f81909106")];
             io=outs,
         )
-        registry_updated = true
+        push!(_updated_depots, Pkg.depots1())
     end
+end
+
+# We now have more up-to-date information on what the historical stdlibs are
+# than Pkg does (and indeed, newer versions require us to do this)
+function update_pkg_historical_stdlibs()
+    append!(empty!(Pkg.Types.STDLIBS_BY_VERSION), HistoricalStdlibVersions.STDLIBS_BY_VERSION)
+    return nothing
 end

@@ -25,7 +25,7 @@ using JLLPrefixes: PkgSpec
     # Do another simple JLL installation, but this time for a few different architectures
     for platform in [Platform("aarch64", "linux"), Platform("x86_64", "macos"), Platform("i686", "windows")]
         @testset "Zstd_jll ($(platform))" begin
-            artifact_paths = collect_artifact_paths(["Zstd_jll"]; platform)
+            artifact_paths = collect_artifact_paths(["Zstd_jll"]; platform, verbose=true)
             check_zstd_jll(first(artifact_paths)...)
 
             # Test that we're getting the kind of dynamic library we expect
@@ -47,7 +47,7 @@ using JLLPrefixes: PkgSpec
     # Test that we can request a particular version of Zstd_jll
     linux64 = Platform("x86_64", "linux")
     @testset "Zstd_jll ($(linux64), v1.4.2)" begin
-        artifact_paths = collect_artifact_paths([PkgSpec(;name="Zstd_jll", version=v"1.4.2")]; platform=linux64)
+        artifact_paths = collect_artifact_paths([PkgSpec(;name="Zstd_jll", version=v"1.4.2")]; platform=linux64, verbose=true)
 
         # There was only one JLL downloaded, and it was Zstd_jll
         @test length(artifact_paths) == 1
@@ -62,7 +62,7 @@ using JLLPrefixes: PkgSpec
     # Kick it up a notch; start involving dependencies
     @testset "XML2_jll ($(linux64), dependencies)" begin
         # Lock XML2_jll to v2.9 in case it adds more dependencies in the future
-        artifact_paths = collect_artifact_paths([PkgSpec(;name="XML2_jll", version=v"2.9.12")]; platform=linux64)
+        artifact_paths = collect_artifact_paths([PkgSpec(;name="XML2_jll", version=v"2.9.12")]; platform=linux64, verbose=true)
 
         @test length(artifact_paths) == 3
         @test sort([p.name for p in keys(artifact_paths)]) == ["Libiconv_jll", "XML2_jll", "Zlib_jll"]
@@ -70,15 +70,21 @@ using JLLPrefixes: PkgSpec
 
     # Install two packages that have nothing to do with eachother at the same time
     @testset "Bzip2_jll + Zstd_jll" begin
-        artifact_paths = collect_artifact_paths(["Bzip2_jll", "Zstd_jll"])
+        artifact_paths = collect_artifact_paths(["Bzip2_jll", "Zstd_jll"]; verbose=true)
         @test length(artifact_paths) == 2
         @test sort([p.name for p in keys(artifact_paths)]) == ["Bzip2_jll", "Zstd_jll"]
     end
 
-    # Test stdlibs across versions
-    for (GMP_soversion, julia_version) in (("10.3.2", v"1.5"), ("10.4.0", v"1.6"), ("10.4.1", v"1.7"))
+    # Test stdlibs across versions.  Note that `GMP_jll` was _not_ a standard library in v1.5,
+    # it _is_ a standard library in v1.6 and v1.7.
+    GMP_JULIA_VERSIONS = [
+        ("10.3.2", v"1.5"),
+        ("10.4.0", v"1.6"),
+        ("10.4.1", v"1.7"),
+    ]
+    for (GMP_soversion, julia_version) in GMP_JULIA_VERSIONS
         @testset "GMP_jll (Julia $(julia_version))" begin
-            artifact_paths = collect_artifact_paths(["GMP_jll"]; platform=Platform("x86_64", "linux"; julia_version))
+            artifact_paths = collect_artifact_paths(["GMP_jll"]; platform=Platform("x86_64", "linux"; julia_version), verbose=true)
             @test length(artifact_paths) == 1
             gmp_artifact_dir = only(first(values(artifact_paths)))
             @test isfile(joinpath(gmp_artifact_dir, "lib", "libgmp.so.$(GMP_soversion)"))
@@ -87,22 +93,22 @@ using JLLPrefixes: PkgSpec
 
     # Test "impossible" situations via `julia_version == nothing`
     @testset "Impossible Constraints" begin
-        # We can't naively install GMP v6.1.2 and MPFR v4.1.0, because those are
+        # We can't naively install OpenBLAS v0.3.13 and LBT v5.1.1, because those are
         # from conflicting Julia versions, and the Pkg resolver doesn't like that
-        for julia_version in (v"1.5", v"1.6")
+        for julia_version in (v"1.7.3", v"1.8.0")
             @test_throws Pkg.Resolve.ResolverError collect_artifact_paths([
-                PkgSpec(;name="GMP_jll",  version=v"6.1.2"),
-                PkgSpec(;name="MPFR_jll", version=v"4.1.0"),
-            ]; platform=Platform("x86_64", "linux"; julia_version))
+                PkgSpec(;name="OpenBLAS_jll",  version=v"0.3.13"),
+                PkgSpec(;name="libblastrampoline_jll", version=v"5.1.1"),
+            ]; platform=Platform("x86_64", "linux"; julia_version), verbose=true)
         end
 
         # So we must pass julia_version == nothing, as is the case in our `linux64` object
         artifact_paths = collect_artifact_paths([
-            PkgSpec(;name="GMP_jll",  version=v"6.1.2"),
-            PkgSpec(;name="MPFR_jll", version=v"4.1.0"),
-        ]; platform=linux64)
-        @test length(artifact_paths) == 2
-        @test sort([p.name for p in keys(artifact_paths)]) == ["GMP_jll", "MPFR_jll"]
+            PkgSpec(;name="OpenBLAS_jll",  version=v"0.3.13"),
+            PkgSpec(;name="libblastrampoline_jll", version=v"5.1.1"),
+        ]; platform=linux64, verbose=true)
+        @test length(artifact_paths) == 3
+        @test sort([p.name for p in keys(artifact_paths)]) == ["CompilerSupportLibraries_jll", "OpenBLAS_jll", "libblastrampoline_jll"]
     end
 
     # Test adding something that doesn't exist on a certain platform
@@ -119,38 +125,58 @@ if Sys.iswindows()
     exe = ".exe"
 end
 
-@testset "Symlinking" begin
-    # Grab a big JLL, like FFMPEG, symlink them all together, and ensure that all the files exist
-    @testset "FFMPEG" begin
-        artifact_paths = collect_artifact_paths(["FFMPEG_jll"])
-        mktempdir() do prefix
-            symlink_artifact_paths(prefix, artifact_paths)
-
-            # Ensure that a bunch of tools we expect to be installed are, in fact, installed
-            for tool in ("ffmpeg", "bzcat", "fc-cache", "iconv", "x264", "x265", "xslt-config")
-                @test isfile(joinpath(prefix, "bin", "$(tool)$(exe)"))
-                @test isfile(abspath(joinpath(prefix, "bin", "$(tool)$(exe)")))
-            end
-        end
+# Helper function to move our primary depot to a new location
+function with_depot_path(f::Function, new_path::String)
+    new_depot_path = [
+        abspath(new_path),
+        abspath(Sys.BINDIR, "..", "local", "share", "julia"),
+        abspath(Sys.BINDIR, "..", "share", "julia"),
+    ]
+    old_depot_path = Base.DEPOT_PATH
+    try
+        empty!(Base.DEPOT_PATH)
+        append!(Base.DEPOT_PATH, new_depot_path)
+        f()
+    finally
+        empty!(Base.DEPOT_PATH)
+        append!(Base.DEPOT_PATH, old_depot_path)
     end
 end
 
-@testset "Copying" begin
-    # Grab a big JLL, like FFMPEG, symlink them all together, and ensure that all the files exist
-    # Also, this should allow us to actually run `ffmpeg`!
-    @testset "FFMPEG" begin
-        artifact_paths = collect_artifact_paths(["FFMPEG_jll"])
-        mktempdir() do prefix
-            copy_artifact_paths(prefix, artifact_paths)
-
-            # Ensure that a bunch of tools we expect to be installed are, in fact, installed
-            for tool in ("ffmpeg", "bzcat", "fc-cache", "iconv", "x264", "x265", "xslt-config")
-                # Use `eval` so that the test failure shows which tools fail
-                tool_name = string(tool, exe)
-                @eval @test isfile(joinpath($(prefix), "bin", $(tool_name)))
-            end
-
-            run(`$(joinpath(prefix, "bin", "ffmpeg$(exe)")) -version`)
+@testset "FFMPEG installation test" begin
+    installer_strategies = Dict(
+        "copy" => copy_artifact_paths,
+        "symlink" => symlink_artifact_paths,
+        "hardlink" => hardlink_artifact_paths,
+    )
+    mktempdir() do depot; with_depot_path(depot) do
+        # Get registries installed into new depot
+        Pkg.activate(mktempdir()) do
+            Pkg.update()
         end
-    end
+
+        for strategy in keys(installer_strategies)
+            mktempdir() do prefix
+                artifact_paths = collect_artifact_paths(["FFMPEG_jll"]; verbose=true)
+                @testset "$strategy strategy" begin
+                    installer_strategies[strategy](prefix, artifact_paths)
+
+                    # Ensure that a bunch of tools we expect to be installed are, in fact, installed
+                    for tool in ("ffmpeg", "bzcat", "fc-cache", "iconv", "x264", "x265", "xslt-config")
+                        # Use `@eval` here so the test itself shows the tool name, for easier debugging
+                        tool_name = string(tool, exe)
+                        @eval @test ispath(joinpath($(prefix), "bin", $(tool_name)))
+
+                        # Extra `realpath()` here to explicitly test dereferencing symlinks
+                        @eval @test isfile(realpath(joinpath($(prefix), "bin", $(tool_name))))
+                    end
+
+                    # Symlinking is insufficient for RPATH, unfortunately.
+                    if strategy != "symlink"
+                        run(`$(joinpath(prefix, "bin", "ffmpeg$(exe)")) -version`)
+                    end
+                end
+            end
+        end
+    end; end
 end

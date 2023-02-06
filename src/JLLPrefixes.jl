@@ -1,7 +1,7 @@
 module JLLPrefixes
 using Pkg, Pkg.Artifacts, Base.BinaryPlatforms
 
-export collect_artifact_metas, collect_artifact_paths, symlink_artifact_paths, unsymlink_artifact_paths, copy_artifact_paths
+export collect_artifact_metas, collect_artifact_paths, symlink_artifact_paths, unsymlink_artifact_paths, copy_artifact_paths, hardlink_artifact_paths
 
 # Bring in helpers for git repositories
 include("libgit2_utils.jl")
@@ -12,8 +12,9 @@ include("pkg_utils.jl")
 # Bring in helpers to deal with symlink nests
 include("symlink_utils.jl")
 
-# Only update the registry once per session, by default
-const _registry_updated = Ref(false)
+function __init__()
+    update_pkg_historical_stdlibs()
+end
 
 """
     collect_artifact_metas(dependencies::Vector;
@@ -35,13 +36,12 @@ stdlibs, and thus locked to a single version based on the Julia version.
 function collect_artifact_metas(dependencies::Vector{PkgSpec};
                                 platform::AbstractPlatform = HostPlatform(),
                                 project_dir::AbstractString = mktempdir(),
-                                update_registry::Bool = _registry_updated[],
                                 verbose::Bool = false)
     # We occasionally generate "illegal" package specs, where we provide both version and tree hash.
     # we trust the treehash over the version, so drop the version for any that exists here:
     function filter_redundant_version(p::PkgSpec)
         if p.version !== nothing && p.tree_hash !== nothing
-            return Pkg.Types.PackageSpec(;name=p.name, tree_hash=p.tree_hash, repo=p.repo)
+            return Pkg.Types.PackageSpec(;name=p.name, tree_hash=p.tree_hash, repo=p.repo, url=p.url)
         end
         return p
     end
@@ -65,13 +65,7 @@ function collect_artifact_metas(dependencies::Vector{PkgSpec};
         pkg_io = verbose ? stdout : devnull
 
         # Update registry first, in case the jll packages we're looking for have just been registered/updated
-        if update_registry
-            Pkg.Registry.update(
-                [Pkg.RegistrySpec(uuid = "23338594-aafe-5451-b93e-139f81909106")];
-                io=pkg_io,
-            )
-            _registry_updated[] = true
-        end
+        update_registry(pkg_io)
 
         # Add all dependencies to our project
         Pkg.add(ctx, dependencies; platform=platform, io=pkg_io)
@@ -242,6 +236,15 @@ function copy_artifact_paths(dest::AbstractString, artifact_paths::Vector{String
 end
 function copy_artifact_paths(dest::AbstractString, artifact_paths::Dict{PkgSpec, Vector{String}})
     return copy_artifact_paths(dest, flatten_artifact_paths(artifact_paths))
+end
+
+function hardlink_artifact_paths(dest::AbstractString, artifact_paths::Vector{String})
+    for artifact_path in artifact_paths
+        hardlink_tree(dest, artifact_path)
+    end
+end
+function hardlink_artifact_paths(dest::AbstractString, artifact_paths::Dict{PkgSpec, Vector{String}})
+    return hardlink_artifact_paths(dest, flatten_artifact_paths(artifact_paths))
 end
 
 end # module JLLPrefixes
