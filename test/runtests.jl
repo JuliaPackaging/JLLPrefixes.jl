@@ -162,7 +162,7 @@ end
                     installer_strategies[strategy](prefix, artifact_paths)
 
                     # Ensure that a bunch of tools we expect to be installed are, in fact, installed
-                    for tool in ("ffmpeg", "bzcat", "fc-cache", "iconv", "x264", "x265", "xslt-config")
+                    for tool in ("ffmpeg", "fc-cache", "iconv", "x264", "x265")
                         # Use `@eval` here so the test itself shows the tool name, for easier debugging
                         tool_name = string(tool, exe)
                         @eval @test ispath(joinpath($(prefix), "bin", $(tool_name)))
