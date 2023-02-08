@@ -29,6 +29,21 @@ steps:
       os: "macos"
       arch: "x86_64"
 
+  - label: ":windows: :julia: Run tests on v1"
+    plugins:
+      - JuliaCI/julia#v1:
+          version: '1'
+      # Shorten the path to the clone directory, as Windows can't handle long paths
+      - staticfloat/metahook:
+          pre-command: |
+            julia --project -e 'using Pkg; Pkg.instantiate()'
+            julia --project -e 'using Preferences; set_preferences!("LocalPreferences.toml", "JLLPrefixes", "clone_dir" => tempdir())'
+      - JuliaCI/julia-test#v1:
+    agents:
+      queue: "juliaecosystem"
+      os: "windows"
+      arch: "x86_64"
+
   - label: ":linux: :julia: Run tests on nightly"
     plugins:
       - JuliaCI/julia#v1:

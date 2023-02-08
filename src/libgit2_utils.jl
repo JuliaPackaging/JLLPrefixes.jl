@@ -1,4 +1,4 @@
-using LibGit2, LibGit2_jll, SHA, Scratch
+using LibGit2, LibGit2_jll, SHA, Scratch, Preferences
 
 """
     cached_git_clone(url::String); desired_commit = nothing, verbose = false)
@@ -8,7 +8,7 @@ then a cached git repository will not be updated if the commit already exists lo
 """
 function cached_git_clone(url::String;
                           desired_commit::Union{Nothing, String} = nothing,
-                          clones_dir::String = @get_scratch!("git_clones"),
+                          clones_dir::String = @load_preference("clone_dir", @get_scratch!("git_clones")),
                           verbose::Bool = false)
     repo_path = joinpath(clones_dir, string(basename(url), "-", bytes2hex(sha256(url))))
     if isdir(repo_path)
