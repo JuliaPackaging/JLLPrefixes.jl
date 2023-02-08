@@ -125,35 +125,12 @@ if Sys.iswindows()
     exe = ".exe"
 end
 
-# Helper function to move our primary depot to a new location
-function with_depot_path(f::Function, new_path::String)
-    new_depot_path = [
-        abspath(new_path),
-        abspath(Sys.BINDIR, "..", "local", "share", "julia"),
-        abspath(Sys.BINDIR, "..", "share", "julia"),
-    ]
-    old_depot_path = Base.DEPOT_PATH
-    try
-        empty!(Base.DEPOT_PATH)
-        append!(Base.DEPOT_PATH, new_depot_path)
-        f()
-    finally
-        empty!(Base.DEPOT_PATH)
-        append!(Base.DEPOT_PATH, old_depot_path)
-    end
-end
-
 @testset "FFMPEG installation test" begin
     installer_strategies = [:copy, :hardlink, :symlink, :auto]
-    mktempdir() do depot; with_depot_path(depot) do
-        # Get registries installed into new depot
-        Pkg.activate(mktempdir()) do
-            Pkg.update()
-        end
-
+    mktempdir() do depot
         for strategy in installer_strategies
             mktempdir() do prefix
-                artifact_paths = collect_artifact_paths(["FFMPEG_jll"]; verbose=true)
+                artifact_paths = collect_artifact_paths(["FFMPEG_jll"]; verbose=true, pkg_depot=depot)
                 @testset "$strategy strategy" begin
                     deploy_artifact_paths(prefix, artifact_paths; strategy)
 
@@ -178,5 +155,5 @@ end
                 end
             end
         end
-    end; end
+    end
 end

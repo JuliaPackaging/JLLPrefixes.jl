@@ -67,11 +67,7 @@ end
     get_addable_spec(name::AbstractString, version::VersionNumber)
 
 Given a JLL name and registered version, return a `PackageSpec` that, when passed as a
-`Dependency`, ensures that exactly that version will be installed.  Example usage:
-
-    dependencies = [
-        BuildDependency(get_addable_spec("LLVM_jll", v"9.0.1+0")),
-    ]
+`Dependency`, ensures that exactly that version will be installed.
 """
 function get_addable_spec(name::AbstractString, version::VersionNumber;
                           ctx = Pkg.Types.Context(), verbose::Bool = false)
@@ -153,6 +149,7 @@ end
 const _updated_depots = Set{String}()
 function update_registry(outs = stdout)
     if Pkg.depots1() ∉ _updated_depots
+        Pkg.Registry.download_default_registries(outs)
         Pkg.Registry.update(
             [Pkg.RegistrySpec(uuid = "23338594-aafe-5451-b93e-139f81909106")];
             io=outs,
@@ -165,5 +162,24 @@ end
 # than Pkg does (and indeed, newer versions require us to do this)
 function update_pkg_historical_stdlibs()
     append!(empty!(Pkg.Types.STDLIBS_BY_VERSION), HistoricalStdlibVersions.STDLIBS_BY_VERSION)
+    merge!(empty!(Pkg.Types.UNREGISTERED_STDLIBS), HistoricalStdlibVersions.UNREGISTERED_STDLIBS)
     return nothing
+end
+
+# Helper function to move our primary depot to a new location
+function with_depot_path(f::Function, new_path::String)
+    new_depot_path = [
+        abspath(new_path),
+        abspath(Sys.BINDIR, "..", "local", "share", "julia"),
+        abspath(Sys.BINDIR, "..", "share", "julia"),
+    ]
+    old_depot_path = copy(Base.DEPOT_PATH)
+    try
+        empty!(Base.DEPOT_PATH)
+        append!(Base.DEPOT_PATH, new_depot_path)
+        f()
+    finally
+        empty!(Base.DEPOT_PATH)
+        append!(Base.DEPOT_PATH, old_depot_path)
+    end
 end
