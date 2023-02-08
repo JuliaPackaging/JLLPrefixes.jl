@@ -144,22 +144,18 @@ function with_depot_path(f::Function, new_path::String)
 end
 
 @testset "FFMPEG installation test" begin
-    installer_strategies = Dict(
-        "copy" => copy_artifact_paths,
-        "symlink" => symlink_artifact_paths,
-        "hardlink" => hardlink_artifact_paths,
-    )
+    installer_strategies = [:copy, :hardlink, :symlink, :auto]
     mktempdir() do depot; with_depot_path(depot) do
         # Get registries installed into new depot
         Pkg.activate(mktempdir()) do
             Pkg.update()
         end
 
-        for strategy in keys(installer_strategies)
+        for strategy in installer_strategies
             mktempdir() do prefix
                 artifact_paths = collect_artifact_paths(["FFMPEG_jll"]; verbose=true)
                 @testset "$strategy strategy" begin
-                    installer_strategies[strategy](prefix, artifact_paths)
+                    deploy_artifact_paths(prefix, artifact_paths; strategy)
 
                     # Ensure that a bunch of tools we expect to be installed are, in fact, installed
                     for tool in ("ffmpeg", "fc-cache", "iconv", "x264", "x265")
@@ -172,8 +168,12 @@ end
                     end
 
                     # Symlinking is insufficient for RPATH, unfortunately.
-                    if strategy != "symlink"
-                        run(`$(joinpath(prefix, "bin", "ffmpeg$(exe)")) -version`)
+                    if strategy == :symlink && !Sys.iswindows()
+                        @test !success(`$(joinpath(prefix, "bin", "ffmpeg$(exe)")) -version`)
+                    else
+                        # Hilariously, since Windows doesn't use `RPATH` but just dumps
+                        # everything into the `bin` directory, it tends to work just fine:
+                        @test success(`$(joinpath(prefix, "bin", "ffmpeg$(exe)")) -version`)
                     end
                 end
             end
