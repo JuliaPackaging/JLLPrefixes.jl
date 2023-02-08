@@ -36,6 +36,7 @@ stdlibs, and thus locked to a single version based on the Julia version.
 function collect_artifact_metas(dependencies::Vector{PkgSpec};
                                 platform::AbstractPlatform = HostPlatform(),
                                 project_dir::AbstractString = mktempdir(),
+                                pkg_depot::AbstractString = Pkg.depots1(),
                                 verbose::Bool = false)
     # We occasionally generate "illegal" package specs, where we provide both version and tree hash.
     # we trust the treehash over the version, so drop the version for any that exists here:
@@ -60,15 +61,18 @@ function collect_artifact_metas(dependencies::Vector{PkgSpec};
     # We're going to create a project and install all dependent packages within
     # it, then create symlinks from those installed products to our build prefix
     deps_project = joinpath(project_dir, "Project.toml")
-    with_no_pkg_handrails() do; Pkg.activate(deps_project) do
-        ctx = Pkg.Types.Context(;julia_version)
+    with_no_pkg_handrails() do; with_depot_path(pkg_depot) do; Pkg.activate(deps_project) do
         pkg_io = verbose ? stdout : devnull
 
         # Update registry first, in case the jll packages we're looking for have just been registered/updated
         update_registry(pkg_io)
 
+        # Create `Context` object _after_ updating registries, as if we're in
+        # a brand-new depot, we need to install them first!
+        ctx = Pkg.Types.Context(;julia_version)
+
         # Add all dependencies to our project
-        Pkg.add(ctx, dependencies; platform=platform, io=pkg_io)
+        Pkg.add(ctx, dependencies; platform, io=pkg_io)
 
         # Ony Julia v1.6, `Pkg.add()` doesn't mutate `dependencies`, so we can't use the `UUID`
         # that was found during resolution there.  Instead, we'll make use of `ctx.env` to figure
@@ -134,7 +138,7 @@ function collect_artifact_metas(dependencies::Vector{PkgSpec};
 
             # If the artifact is available for the given platform, make sure it
             # is also installed.  It may not be the case for lazy artifacts.
-            meta = artifact_meta(dep.name[1:end-4], artifacts_toml; platform=platform)
+            meta = artifact_meta(dep.name[1:end-4], artifacts_toml; platform)
             if meta === nothing
                 # This only gets printed if we're verbose, as this can be kind of common
                 if verbose
@@ -142,6 +146,7 @@ function collect_artifact_metas(dependencies::Vector{PkgSpec};
                 end
                 continue
             end
+            meta = copy(meta)
 
             # NOTE: We are here assuming that each dependency should download only a single
             # artifact with a specific name (e.g. `Zlib_jll` should download the `Zlib`
@@ -150,8 +155,8 @@ function collect_artifact_metas(dependencies::Vector{PkgSpec};
             # they want downloaded!
             ensure_artifact_installed(dep.name[1:end-4], meta, artifacts_toml)
 
-            # Copy the artifact from the global installation location into this build-specific artifacts collection
-            src_path = Pkg.Artifacts.artifact_path(Base.SHA1(meta["git-tree-sha1"]))
+            # Save the artifact path here and now
+            meta["path"] = Pkg.Artifacts.artifact_path(Base.SHA1(meta["git-tree-sha1"]))
             
             # Keep track of our dep paths for later symlinking
             if !haskey(artifact_metas, dep)
@@ -159,7 +164,7 @@ function collect_artifact_metas(dependencies::Vector{PkgSpec};
             end
             push!(artifact_metas[dep], meta)
         end
-    end; end
+    end; end; end
 
     return artifact_metas
 end
@@ -179,11 +184,9 @@ A convenience wrapper around `collect_artifact_metas()` that will peel the
 `meta` objects and return a vector of paths for each package returned.
 """
 function collect_artifact_paths(args...; kwargs...)
-    meta2path(meta) = Pkg.Artifacts.artifact_path(Base.SHA1(meta["git-tree-sha1"]))
-
     meta_mappings = collect_artifact_metas(args...; kwargs...)
     return Dict{PkgSpec,Vector{String}}(
-        pkg => [meta2path(m) for m in metas] for (pkg, metas) in meta_mappings
+        pkg => [m["path"] for m in metas] for (pkg, metas) in meta_mappings
     )
 end
 
