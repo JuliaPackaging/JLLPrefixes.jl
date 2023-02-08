@@ -49,22 +49,12 @@ function symlink_tree(dest::AbstractString, src::AbstractString; verbose::Bool=t
     end
 end
 
-function unsymlink_tree(dest::AbstractString, src::AbstractString)
+function undeploy_tree(dest::AbstractString, src::AbstractString)
     for (root, dirs, files) in walkdir(src)
-        # Unsymlink all symlinked directories, non-symlink directories will be culled in audit.
-        for d in dirs
-            dest_dir = joinpath(dest, relpath(root, src), d)
-            if islink(dest_dir)
-                rm(dest_dir)
-            end
-        end
-
-        # Unsymlink all symlinked files
+        # Delete all files in `dest` that match `src`
         for f in files
             dest_file = joinpath(dest, relpath(root, src), f)
-            if islink(dest_file)
-                rm(dest_file)
-            end
+            rm(dest_file; force=true)
         end
     end
 end
@@ -152,4 +142,51 @@ function hardlink_tree(dest::AbstractString, src::AbstractString; verbose::Bool=
             end
         end
     end
+end
+
+
+# Figure out the preferred method for installing artifacts.
+# In general, we like to hardlink.  But we can't do that if we're trying to
+# cross device boundaries, so we just try it.  :)
+"""
+    probe_strategy(dest, artifact_paths)
+
+Given a destination and a set of source paths the artifacts are coming from,
+automatically determine whether we can use the `:hardlink` strategy, which may
+not be available to us if we are crossing a drive device boundary.  If we
+cannot use `:hardlink`, we default to `:copy`, which is the safest, but slowest
+strategy.
+"""
+function probe_strategy(dest::String, artifact_paths::Vector{String})
+    probe_target = joinpath(dest, "jllprefix.probe")
+    mkpath(dest)
+
+    try
+        for src in artifact_paths
+            for (root, dirs, files) in walkdir(src)
+                # Just try to hardlink one file to the destination
+                if !isempty(files)
+                    hardlink(joinpath(root, first(files)), probe_target)
+                    rm(probe_target; force=true)
+                    break
+                end
+            end
+        end
+    catch e
+        # If we got an error from trying to hardlink something, fail out.
+        if isa(e, IOError) && e.code == -Base.Libc.EXDEV
+            return :copy
+        end
+
+        # Something else went wrong that we weren't expecting
+        rethrow(e)
+    finally
+        # Just in case something goes wrong between the `hardlink()` and the
+        # `rm()`; we really want no possibility of littering.
+        rm(probe_target; force=true)
+    end
+
+    # We successfully hardlinked from every source artifact directory to our
+    # destination directory!  Huzzah!  Enable hardlinks.  :)
+    return :hardlink
 end

@@ -1,7 +1,7 @@
 module JLLPrefixes
 using Pkg, Pkg.Artifacts, Base.BinaryPlatforms
 
-export collect_artifact_metas, collect_artifact_paths, symlink_artifact_paths, unsymlink_artifact_paths, copy_artifact_paths, hardlink_artifact_paths
+export collect_artifact_metas, collect_artifact_paths, deploy_artifact_paths, undeploy_artifact_paths
 
 # Bring in helpers for git repositories
 include("libgit2_utils.jl")
@@ -9,8 +9,8 @@ include("libgit2_utils.jl")
 # Bring in helpers to deal with JLL packages
 include("pkg_utils.jl")
 
-# Bring in helpers to deal with symlink nests
-include("symlink_utils.jl")
+# Bring in helpers to deal with hardlinking, symlinking, etc...
+include("deployment.jl")
 
 function __init__()
     update_pkg_historical_stdlibs()
@@ -193,58 +193,62 @@ function flatten_artifact_paths(d::Dict{PkgSpec, Vector{String}})
 end
 
 
-"""
-    symlink_artifact_paths(dest::String, artifact_paths)
 
-Symlinks all files from the given `artifact_paths` to the given `dest`.
-Provides a merged symlink nest for smashing multiple JLLs together into a single
-prefix, as a cheaper alternative to `copy_artifact_paths`.
 """
-function symlink_artifact_paths(dest::AbstractString, artifact_paths::Vector{String}; verbose::Bool = true)
+    deploy_artifact_paths(dest::AbstractString, artifact_paths;
+                          strategy::Symbol = :auto)
+
+Deploy the given artifacts into the given destination location, using the
+specified deployment strategy.  There are three strategies available to use:
+`:symlink`, `:hardlink` and `:copy`.  By defauly, `deploy_artifact_paths()`
+will probe to see if `:hardlink` is allowed, and if so use it.  Otherwise, it
+will fall back to `:copy`, as that is the safest for dealing with executables
+that expect to be able to use `RPATH` to find dependent libraries at a relative
+path to themselves.  You can set `:symlink` to force usage of symlinks if you
+are certain that `:hardlink` will not work, and you do not need the files to
+reside physically next to eachother.
+"""
+function deploy_artifact_paths(dest::AbstractString, artifact_paths::Vector{String};
+                               strategy::Symbol = :auto, verbose::Bool = true)
+    # The special symbol `:auto` will try `:hardlink`, and if that fails
+    # it will use `:copy`.  The only way to get `:symlink` is to ask for it.
+    if strategy == :auto
+        strategy = probe_strategy(string(dest), artifact_paths)
+    end
+    if strategy ∉ (:symlink, :hardlink, :copy)
+        throw(ArgumentError("Invalid strategy type :$(strategy)!"))
+    end
+
+    # Dynamic dispatch?  What's that?
     for artifact_path in artifact_paths
-        symlink_tree(dest, artifact_path; verbose)
+        if strategy == :symlink
+            symlink_tree(dest, artifact_path; verbose)
+        elseif strategy == :hardlink
+            hardlink_tree(dest, artifact_path; verbose)
+        elseif strategy == :copy
+            copy_tree(dest, artifact_path; verbose)
+        end
     end
 end
-function symlink_artifact_paths(dest::AbstractString, artifact_paths::Dict{PkgSpec, Vector{String}}; kwargs...)
-    return symlink_artifact_paths(dest, flatten_artifact_paths(artifact_paths); kwargs...)
+
+function deploy_artifact_paths(dest::AbstractString, artifact_paths::Dict{PkgSpec, Vector{String}}; kwargs...)
+    return deploy_artifact_paths(dest, flatten_artifact_paths(artifact_paths); kwargs...)
 end
 
 """
-    unsymlink_artifact_paths(dest::String, artifact_paths)
+    undeploy_artifact_paths(dest, artifact_paths)
 
-Removes all symlinks in `dest` that originate from `artifact_paths`.  Useful if
-there is a mixture of symlinked artifacts and other files, and you want to remove
-all symlinks from the artifact paths.
+To cleanup a destination prefix, use `undeploy_artifact_paths()` to delete all
+files that exist within the source `artifact_paths` and the `dest`.
 """
-function unsymlink_artifact_paths(dest::AbstractString, artifact_paths::Vector{String})
+function undeploy_artifact_paths(dest::AbstractString, artifact_paths::Vector{String})
     for artifact_path in artifact_paths
-        unsymlink_tree(dest, artifact_path)
+        undeploy_tree(dest, artifact_path)
     end
 end
-function unsymlink_artifact_paths(dest::AbstractString, artifact_paths::Dict{PkgSpec, Vector{String}})
-    return unsymlink_artifact_paths(dest, flatten_artifact_paths(artifact_paths))
-end
 
-
-"""
-    copy_artifact_paths(dest::String, artifact_paths)
-"""
-function copy_artifact_paths(dest::AbstractString, artifact_paths::Vector{String})
-    for artifact_path in artifact_paths
-        copy_tree(dest, artifact_path)
-    end
-end
-function copy_artifact_paths(dest::AbstractString, artifact_paths::Dict{PkgSpec, Vector{String}})
-    return copy_artifact_paths(dest, flatten_artifact_paths(artifact_paths))
-end
-
-function hardlink_artifact_paths(dest::AbstractString, artifact_paths::Vector{String})
-    for artifact_path in artifact_paths
-        hardlink_tree(dest, artifact_path)
-    end
-end
-function hardlink_artifact_paths(dest::AbstractString, artifact_paths::Dict{PkgSpec, Vector{String}})
-    return hardlink_artifact_paths(dest, flatten_artifact_paths(artifact_paths))
+function undeploy_artifact_paths(dest::AbstractString, artifact_paths::Dict{PkgSpec, Vector{String}})
+    return undeploy_artifact_paths(dest, flatten_artifact_paths(artifact_paths))
 end
 
 end # module JLLPrefixes
