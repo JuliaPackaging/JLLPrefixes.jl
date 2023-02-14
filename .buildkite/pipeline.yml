@@ -31,6 +31,10 @@ steps:
 
   - label: ":windows: :julia: Run tests on v1"
     plugins:
+      - staticfloat/metahook:
+          pre-command: |
+            powershell -noprofile -command "Get-Item 'HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem'"
+            git config --global --get core.longpaths
       - JuliaCI/julia#v1:
           version: '1'
       - JuliaCI/julia-test#v1:
