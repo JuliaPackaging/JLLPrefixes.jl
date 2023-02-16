@@ -4,7 +4,7 @@ using Pkg, Pkg.Artifacts, Base.BinaryPlatforms
 export collect_artifact_metas, collect_artifact_paths, deploy_artifact_paths, undeploy_artifact_paths
 
 # Bring in helpers for git repositories
-include("libgit2_utils.jl")
+include("git_utils.jl")
 
 # Bring in helpers to deal with JLL packages
 include("pkg_utils.jl")
