@@ -12,6 +12,11 @@ function cached_git_clone(url::String;
                           desired_commit::Union{Nothing,String} = nothing,
                           clones_dir::String = @load_preference("clone_dir", @get_scratch!("git_clones")),
                           verbose::Bool = false)
+    quiet_args = String[]
+    if !verbose
+        push!(quiet_args, "-q")
+    end
+
     repo_path = joinpath(clones_dir, string(basename(url), "-", bytes2hex(sha256(url))))
     if isdir(repo_path)
         if verbose
@@ -23,15 +28,15 @@ function cached_git_clone(url::String;
         # this git repository doesn't contain the hash we're seeking.
         # this is not only faster, it avoids race conditions when we have
         # multiple builders on the same machine all fetching at once.
-        if desired_commit === nothing || iscommit(repo_path, desired_commit)
-            run(git(["-C", repo_path, "fetch"]))
+        if desired_commit === nothing || !iscommit(repo_path, desired_commit)
+            run(git(["-C", repo_path, "fetch", quiet_args...]))
         end
     else
         if verbose
             @info("Cloning git repository", url, repo_path)
         end
         # If there is no repo_path yet, clone it down into a bare repository
-        run(git(["clone", "--bare", url, repo_path]))
+        run(git(["clone", "--bare", url, repo_path, quiet_args...]))
     end
     return repo_path
 end
