@@ -10,7 +10,7 @@ using JLLPrefixes
 # Download all of FFMPEG_jll, then copy all the files into the ~/local/ffmpeg_prefix` folder
 prefix = expanduser("~/local/ffmpeg_prefix")
 artifact_paths = collect_artifact_paths(["FFMPEG_jll"])
-deplot_artifact_paths(prefix, artifact_paths)
+deploy_artifact_paths(prefix, artifact_paths)
 run(`$(joinpath(prefix, "bin", "ffmpeg")) -version`)
 ```
 
