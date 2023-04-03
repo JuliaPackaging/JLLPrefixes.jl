@@ -55,6 +55,11 @@ function collect_artifact_metas(dependencies::Vector{PkgSpec};
         julia_version = VersionNumber(platform["julia_version"])
     end
 
+    # Until https://github.com/JuliaLang/julia/pull/48749 is resolved...
+    if !haskey(platform, "sanitize")
+        platform["sanitize"] = "false"
+    end
+
     # This is what we will eventually return
     artifact_metas = Dict{PkgSpec, Vector{Dict}}()
 
