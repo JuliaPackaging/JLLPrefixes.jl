@@ -1,6 +1,8 @@
 using Test, JLLPrefixes, Base.BinaryPlatforms, Pkg
 using JLLPrefixes: PkgSpec
 
+const verbose = false
+
 @testset "JLL collection" begin
     function check_zstd_jll(zstd_pkgspec, zstd_artifacts)
         # Ensure this pkgspec is named Zstd_jll
@@ -14,7 +16,7 @@ using JLLPrefixes: PkgSpec
 
     @testset "Zstd_jll (native)" begin
         # Start with a simple JLL with no dependencies
-        artifact_paths = collect_artifact_paths(["Zstd_jll"]; verbose=true)
+        artifact_paths = collect_artifact_paths(["Zstd_jll"]; verbose)
 
         # There was only one JLL downloaded, and it was Zstd_jll
         @test length(artifact_paths) == 1
@@ -25,7 +27,7 @@ using JLLPrefixes: PkgSpec
     # Do another simple JLL installation, but this time for a few different architectures
     for platform in [Platform("aarch64", "linux"), Platform("x86_64", "macos"), Platform("i686", "windows")]
         @testset "Zstd_jll ($(platform))" begin
-            artifact_paths = collect_artifact_paths(["Zstd_jll"]; platform, verbose=true)
+            artifact_paths = collect_artifact_paths(["Zstd_jll"]; platform, verbose)
             check_zstd_jll(first(artifact_paths)...)
 
             # Test that we're getting the kind of dynamic library we expect
@@ -46,8 +48,8 @@ using JLLPrefixes: PkgSpec
 
     # Test that we can request a particular version of Zstd_jll
     linux64 = Platform("x86_64", "linux")
-    @testset "Zstd_jll ($(linux64), v1.4.2)" begin
-        artifact_paths = collect_artifact_paths([PkgSpec(;name="Zstd_jll", version=v"1.4.2")]; platform=linux64, verbose=true)
+    @testset "Zstd_jll ($(linux64), v1.4.2+0)" begin
+        artifact_paths = collect_artifact_paths([PkgSpec(;name="Zstd_jll", version=v"1.4.2+0")]; platform=linux64, verbose)
 
         # There was only one JLL downloaded, and it was Zstd_jll
         @test length(artifact_paths) == 1
@@ -60,9 +62,9 @@ using JLLPrefixes: PkgSpec
     end
 
     # Kick it up a notch; start involving dependencies
-    @testset "XML2_jll ($(linux64), dependencies)" begin
+    @testset "XML2_jll ($(linux64), v2.9.12+0, dependencies)" begin
         # Lock XML2_jll to v2.9 in case it adds more dependencies in the future
-        artifact_paths = collect_artifact_paths([PkgSpec(;name="XML2_jll", version=v"2.9.12")]; platform=linux64, verbose=true)
+        artifact_paths = collect_artifact_paths([PkgSpec(;name="XML2_jll", version=v"2.9.12+0")]; platform=linux64, verbose)
 
         @test length(artifact_paths) == 3
         @test sort([p.name for p in keys(artifact_paths)]) == ["Libiconv_jll", "XML2_jll", "Zlib_jll"]
@@ -70,7 +72,7 @@ using JLLPrefixes: PkgSpec
 
     # Install two packages that have nothing to do with eachother at the same time
     @testset "Bzip2_jll + Zstd_jll" begin
-        artifact_paths = collect_artifact_paths(["Bzip2_jll", "Zstd_jll"]; verbose=true)
+        artifact_paths = collect_artifact_paths(["Bzip2_jll", "Zstd_jll"]; verbose)
         @test length(artifact_paths) == 2
         @test sort([p.name for p in keys(artifact_paths)]) == ["Bzip2_jll", "Zstd_jll"]
     end
@@ -84,7 +86,7 @@ using JLLPrefixes: PkgSpec
     ]
     for (GMP_soversion, julia_version) in GMP_JULIA_VERSIONS
         @testset "GMP_jll (Julia $(julia_version))" begin
-            artifact_paths = collect_artifact_paths(["GMP_jll"]; platform=Platform("x86_64", "linux"; julia_version), verbose=true)
+            artifact_paths = collect_artifact_paths(["GMP_jll"]; platform=Platform("x86_64", "linux"; julia_version), verbose)
             @test length(artifact_paths) == 1
             gmp_artifact_dir = only(first(values(artifact_paths)))
             @test isfile(joinpath(gmp_artifact_dir, "lib", "libgmp.so.$(GMP_soversion)"))
@@ -99,14 +101,14 @@ using JLLPrefixes: PkgSpec
             @test_throws Pkg.Resolve.ResolverError collect_artifact_paths([
                 PkgSpec(;name="OpenBLAS_jll",  version=v"0.3.13"),
                 PkgSpec(;name="libblastrampoline_jll", version=v"5.1.1"),
-            ]; platform=Platform("x86_64", "linux"; julia_version), verbose=true)
+            ]; platform=Platform("x86_64", "linux"; julia_version), verbose)
         end
 
         # So we must pass julia_version == nothing, as is the case in our `linux64` object
         artifact_paths = collect_artifact_paths([
             PkgSpec(;name="OpenBLAS_jll",  version=v"0.3.13"),
             PkgSpec(;name="libblastrampoline_jll", version=v"5.1.1"),
-        ]; platform=linux64, verbose=true)
+        ]; platform=linux64, verbose)
         @test length(artifact_paths) == 3
         @test sort([p.name for p in keys(artifact_paths)]) == ["CompilerSupportLibraries_jll", "OpenBLAS_jll", "libblastrampoline_jll"]
     end
@@ -114,6 +116,7 @@ using JLLPrefixes: PkgSpec
     # Test adding something that doesn't exist on a certain platform
     @testset "Platform Incompatibility" begin
         @test_logs (:warn, r"Dependency Libuuid_jll does not have a mapping for artifact Libuuid for platform x86_64-apple-darwin") begin
+            # This test _must_ be verbose, so we catch the appropriate logs
             artifact_paths = collect_artifact_paths(["Libuuid_jll"]; platform=Platform("x86_64", "macos"), verbose=true)
             @test isempty(artifact_paths)
         end
@@ -130,7 +133,7 @@ end
     mktempdir() do depot
         for strategy in installer_strategies
             mktempdir() do prefix
-                artifact_paths = collect_artifact_paths(["FFMPEG_jll"]; verbose=true, pkg_depot=depot)
+                artifact_paths = collect_artifact_paths(["FFMPEG_jll"]; verbose, pkg_depot=depot)
                 @testset "$strategy strategy" begin
                     deploy_artifact_paths(prefix, artifact_paths; strategy)
 
