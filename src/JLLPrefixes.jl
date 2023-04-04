@@ -38,11 +38,10 @@ function collect_artifact_metas(dependencies::Vector{PkgSpec};
                                 project_dir::AbstractString = mktempdir(),
                                 pkg_depot::AbstractString = Pkg.depots1(),
                                 verbose::Bool = false)
-    # We occasionally generate "illegal" package specs, where we provide both version and tree hash.
-    # we trust the treehash over the version, so drop the version for any that exists here:
+    # It's not legal to provide a version alongside a `repo`
     function filter_redundant_version(p::PkgSpec)
-        if p.version !== nothing && p.tree_hash !== nothing
-            return Pkg.Types.PackageSpec(;name=p.name, tree_hash=p.tree_hash, repo=p.repo, url=p.url)
+        if p.repo.source !== nothing || p.repo.rev !== nothing
+            p.version = Pkg.Types.VersionSpec()
         end
         return p
     end

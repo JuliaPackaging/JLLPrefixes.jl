@@ -2,6 +2,8 @@ using Test, JLLPrefixes, Base.BinaryPlatforms, Pkg
 using JLLPrefixes: PkgSpec
 
 const verbose = false
+const linux64 = Platform("x86_64", "linux")
+const linux64_to_linux64 = Platform("x86_64", "linux"; target_arch="x86_64", target_os="linux", target_libc="glibc")
 
 @testset "JLL collection" begin
     function check_zstd_jll(zstd_pkgspec, zstd_artifacts)
@@ -47,7 +49,6 @@ const verbose = false
     end
 
     # Test that we can request a particular version of Zstd_jll
-    linux64 = Platform("x86_64", "linux")
     @testset "Zstd_jll ($(linux64), v1.4.2+0)" begin
         artifact_paths = collect_artifact_paths([PkgSpec(;name="Zstd_jll", version=v"1.4.2+0")]; platform=linux64, verbose)
 
@@ -159,4 +160,26 @@ end
             end
         end
     end
+end
+
+@testset "tree_hash-provided sources" begin
+    artifact_paths = collect_artifact_paths([
+        PkgSpec(;name="Binutils_jll", version=v"2.38.0+4", tree_hash=Base.SHA1("ffa0762c5e00e109c88f820b3e15fca842ffa808")),
+    ]; platform=linux64_to_linux64, verbose)
+
+    # Test that we get precisely the right Binutils_jll version.
+    @test basename(only(only([v for (k, v) in artifact_paths if k.name == "Binutils_jll"]))) == "cfacb1560e678d1d058d397d4b792f0d525ce5e1"
+end
+
+@testset "repo-provided sources" begin
+    artifact_paths = collect_artifact_paths([
+        PkgSpec(;
+            name="Binutils_jll",
+            repo=Pkg.Types.GitRepo(
+                rev="89943b0c48834fb291b24fb73d90b821185ed44b",
+                source="https://github.com/JuliaBinaryWrappers/Binutils_jll.jl"
+            ),
+        ),
+    ]; platform=linux64_to_linux64, verbose)
+    @test basename(only(only([v for (k, v) in artifact_paths if k.name == "Binutils_jll"]))) == "cfacb1560e678d1d058d397d4b792f0d525ce5e1"
 end
