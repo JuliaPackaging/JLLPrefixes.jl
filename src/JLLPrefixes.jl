@@ -60,7 +60,7 @@ function collect_artifact_metas(dependencies::Vector{PkgSpec};
     end
 
     # This is what we will eventually return
-    artifact_metas = Dict{PkgSpec, Vector{Dict}}()
+    artifact_metas = Dict{PkgSpec, Dict}()
 
     # We're going to create a project and install all dependent packages within
     # it, then create symlinks from those installed products to our build prefix
@@ -78,7 +78,7 @@ function collect_artifact_metas(dependencies::Vector{PkgSpec};
         # Add all dependencies to our project
         Pkg.add(ctx, dependencies; platform, io=pkg_io)
 
-        # Ony Julia v1.6, `Pkg.add()` doesn't mutate `dependencies`, so we can't use the `UUID`
+        # On Julia v1.6, `Pkg.add()` doesn't mutate `dependencies`, so we can't use the `UUID`
         # that was found during resolution there.  Instead, we'll make use of `ctx.env` to figure
         # out the UUIDs of all our packages.
         dependency_uuids = Set([uuid for (uuid, pkg) in ctx.env.manifest if pkg.name ∈ dependencies_names])
@@ -159,14 +159,15 @@ function collect_artifact_metas(dependencies::Vector{PkgSpec};
             # they want downloaded!
             ensure_artifact_installed(dep.name[1:end-4], meta, artifacts_toml)
 
-            # Save the artifact path here and now
-            meta["path"] = Pkg.Artifacts.artifact_path(Base.SHA1(meta["git-tree-sha1"]))
-            
-            # Keep track of our dep paths for later symlinking
-            if !haskey(artifact_metas, dep)
-                artifact_metas[dep] = Dict[]
-            end
-            push!(artifact_metas[dep], meta)
+            # Save the artifact path here and now (as stated above, we may eventually
+            # support more than one artifact per JLL, which is why this is a vector)
+            meta["paths"] = [
+                Pkg.Artifacts.artifact_path(Base.SHA1(meta["git-tree-sha1"]))
+            ]
+
+            # Also save our JLL dependencies, so we can sort these later
+            meta["dep_uuids"] = [uuid for (_, uuid) in ctx.env.manifest[dep.uuid].deps if any(jll.uuid == uuid for jll in installed_jlls)]
+            artifact_metas[dep] = meta
         end
     end; end; end
 
@@ -185,20 +186,51 @@ end
                            verbose = false)
 
 A convenience wrapper around `collect_artifact_metas()` that will peel the
-`meta` objects and return a vector of paths for each package returned.
+`meta` objects, walk the dependency tree, and return a dictionary mapping
+each package in `dependencies` to a flattened vector of artifact path
+directories.  Use `flatten_artifact_paths()` to further flatten the tree
+into just a single vector.
 """
-function collect_artifact_paths(args...; kwargs...)
-    meta_mappings = collect_artifact_metas(args...; kwargs...)
-    return Dict{PkgSpec,Vector{String}}(
-        pkg => [m["path"] for m in metas] for (pkg, metas) in meta_mappings
+function collect_artifact_paths(dependencies::Vector{PackageSpec}; kwargs...)
+    meta_mappings = collect_artifact_metas(dependencies; kwargs...)
+
+    function collect_dep_paths(pkg::PackageSpec, paths::Vector{String})
+        # First, the direct artifact paths:
+        append!(paths, meta_mappings[pkg]["paths"])
+
+        # Next, recurse on the dependencies
+        for dep_uuid in meta_mappings[pkg]["dep_uuids"]
+            pkg = only([pkg for (pkg, _) in meta_mappings if Base.UUID(pkg.uuid) == dep_uuid])
+            collect_dep_paths(pkg, paths)
+        end
+        return paths
+    end
+
+    # Collect all dependencies for each top-level `dep`, including transitive dependencies
+    collected_paths = Dict{PkgSpec,Vector{String}}()
+    for dep in dependencies
+        # Find corresponding key in `meta_mappings`
+        pkgs = [pkg for (pkg, _) in meta_mappings if pkg.uuid == dep.uuid]
+        if isempty(pkgs)
+            @warn("Unable to find installed artifact for $(dep.name)")
+            continue
+        end
+        pkg = only(pkgs)
+        collected_paths[pkg] = collect_dep_paths(pkg, String[])
+    end
+    return collected_paths
+end
+function collect_artifact_paths(pkg_names::Vector{<:AbstractString}; kwargs...)
+    return collect_artifact_paths(
+        [PackageSpec(; name) for name in pkg_names];
+        kwargs...
     )
 end
 
 # Helper function for throwing away the `PkgSpec` information
 function flatten_artifact_paths(d::Dict{PkgSpec, Vector{String}})
-    return vcat(values(d)...)
+    return unique(vcat(values(d)...))
 end
-
 
 
 """

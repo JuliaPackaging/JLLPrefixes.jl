@@ -1,5 +1,5 @@
 using Test, JLLPrefixes, Base.BinaryPlatforms, Pkg
-using JLLPrefixes: PkgSpec
+using JLLPrefixes: PkgSpec, flatten_artifact_paths
 
 const verbose = false
 const linux64 = Platform("x86_64", "linux")
@@ -67,8 +67,9 @@ const linux64_to_linux64 = Platform("x86_64", "linux"; target_arch="x86_64", tar
         # Lock XML2_jll to v2.9 in case it adds more dependencies in the future
         artifact_paths = collect_artifact_paths([PkgSpec(;name="XML2_jll", version=v"2.9.12+0")]; platform=linux64, verbose)
 
-        @test length(artifact_paths) == 3
-        @test sort([p.name for p in keys(artifact_paths)]) == ["Libiconv_jll", "XML2_jll", "Zlib_jll"]
+        @test length(artifact_paths) == 1
+        @test sort([p.name for p in keys(artifact_paths)]) == ["XML2_jll"]
+        @test length(only(values(artifact_paths))) == 3
     end
 
     # Install two packages that have nothing to do with eachother at the same time
@@ -110,16 +111,60 @@ const linux64_to_linux64 = Platform("x86_64", "linux"; target_arch="x86_64", tar
             PkgSpec(;name="OpenBLAS_jll",  version=v"0.3.13"),
             PkgSpec(;name="libblastrampoline_jll", version=v"5.1.1"),
         ]; platform=linux64, verbose)
-        @test length(artifact_paths) == 3
-        @test sort([p.name for p in keys(artifact_paths)]) == ["CompilerSupportLibraries_jll", "OpenBLAS_jll", "libblastrampoline_jll"]
+        @test length(flatten_artifact_paths(artifact_paths)) == 3
+        @test sort([p.name for p in keys(artifact_paths)]) == ["OpenBLAS_jll", "libblastrampoline_jll"]
     end
 
     # Test adding something that doesn't exist on a certain platform
     @testset "Platform Incompatibility" begin
-        @test_logs (:warn, r"Dependency Libuuid_jll does not have a mapping for artifact Libuuid for platform x86_64-apple-darwin") begin
+        @test_logs (:warn, r"Dependency Libuuid_jll does not have a mapping for artifact Libuuid for platform") (:warn, r"Unable to find installed artifact") begin
             # This test _must_ be verbose, so we catch the appropriate logs
             artifact_paths = collect_artifact_paths(["Libuuid_jll"]; platform=Platform("x86_64", "macos"), verbose=true)
             @test isempty(artifact_paths)
+        end
+    end
+
+    @testset "Transitive dependency deduplication" begin
+        # Test that when we collect two JLLs that share a transitive dependency, it gets
+        # deduplicated when flattened:
+        artifact_paths = collect_artifact_paths([
+            "libass_jll",
+            "wget_jll",
+            "Zlib_jll"
+        ]; platform=linux64, verbose)
+        # Get the Zlib_jll artifact name:
+        zlib_artifact_path = only(only([paths for (pkg, paths) in artifact_paths if pkg.name == "Zlib_jll"]))
+
+        # The `Zlib_jll` artifact is counted in every package:
+        for (pkg, paths) in artifact_paths
+            @test zlib_artifact_path ∈ paths
+        end
+
+        # When we flatten the artifact paths, we deduplicate:
+        flattened = flatten_artifact_paths(artifact_paths)
+        @test zlib_artifact_path ∈ flattened
+        @test length(flattened) == length(unique(flattened))
+    end
+
+    @testset "Shared dependency resolution" begin
+        special_autoconf_pkgspec = PkgSpec(;
+            name="autoconf_jll",
+            repo=Pkg.Types.GitRepo(
+                rev="c726a3f9a56a11c1dbd6d2352a7fe6219e38405a",
+                source="https://github.com/staticfloat/autoconf_jll.jl",
+            ),
+        )
+
+        autoconf_path = only(flatten_artifact_paths(collect_artifact_paths([special_autoconf_pkgspec]; platform=linux64, verbose)))
+
+        # Test that if we have a special version of a JLL, it gets resolved as a dependency of another JLL:
+        artifact_paths = collect_artifact_paths([
+            special_autoconf_pkgspec,
+            PkgSpec(;name="automake_jll"),
+        ]; platform=linux64, verbose=true)
+
+        for (pkg, paths) in artifact_paths
+            @test autoconf_path ∈ paths
         end
     end
 end
@@ -168,7 +213,7 @@ end
     ]; platform=linux64_to_linux64, verbose)
 
     # Test that we get precisely the right Binutils_jll version.
-    @test basename(only(only([v for (k, v) in artifact_paths if k.name == "Binutils_jll"]))) == "cfacb1560e678d1d058d397d4b792f0d525ce5e1"
+    @test any(basename.(only([v for (k, v) in artifact_paths if k.name == "Binutils_jll"])) .== Ref("cfacb1560e678d1d058d397d4b792f0d525ce5e1"))
 end
 
 @testset "repo-provided sources" begin
@@ -181,5 +226,5 @@ end
             ),
         ),
     ]; platform=linux64_to_linux64, verbose)
-    @test basename(only(only([v for (k, v) in artifact_paths if k.name == "Binutils_jll"]))) == "cfacb1560e678d1d058d397d4b792f0d525ce5e1"
+    @test any(basename.(only([v for (k, v) in artifact_paths if k.name == "Binutils_jll"])) .== "cfacb1560e678d1d058d397d4b792f0d525ce5e1")
 end
