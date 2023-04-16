@@ -122,6 +122,7 @@ function collect_artifact_metas(dependencies::Vector{PkgSpec};
         # Load their Artifacts.toml files
         for dep in installed_jlls
             dep_path = Pkg.Operations.find_installed(dep.name, dep.uuid, dep.tree_hash)
+            dep_dep_uuids = [uuid for (_, uuid) in ctx.env.manifest[dep.uuid].deps if any(jll.uuid == uuid for jll in installed_jlls)]
 
             # Skip dependencies that didn't get installed, but warn as this should never happen
             if dep_path === nothing
@@ -148,6 +149,11 @@ function collect_artifact_metas(dependencies::Vector{PkgSpec};
                 if verbose
                     @warn("Dependency $(dep.name) does not have a mapping for artifact $(dep.name[1:end-4]) for platform $(triplet(platform))")
                 end
+                # Save an empty mapping in `artifact_metas` so that we can pass through transitive dependencies
+                artifact_metas[dep] = Dict(
+                    "paths" => String[],
+                    "dep_uuids" => dep_dep_uuids,
+                )
                 continue
             end
             meta = copy(meta)
@@ -166,7 +172,7 @@ function collect_artifact_metas(dependencies::Vector{PkgSpec};
             ]
 
             # Also save our JLL dependencies, so we can sort these later
-            meta["dep_uuids"] = [uuid for (_, uuid) in ctx.env.manifest[dep.uuid].deps if any(jll.uuid == uuid for jll in installed_jlls)]
+            meta["dep_uuids"] = dep_dep_uuids
             artifact_metas[dep] = meta
         end
     end; end; end

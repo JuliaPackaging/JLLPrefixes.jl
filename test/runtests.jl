@@ -117,10 +117,11 @@ const linux64_to_linux64 = Platform("x86_64", "linux"; target_arch="x86_64", tar
 
     # Test adding something that doesn't exist on a certain platform
     @testset "Platform Incompatibility" begin
-        @test_logs (:warn, r"Dependency Libuuid_jll does not have a mapping for artifact Libuuid for platform") (:warn, r"Unable to find installed artifact") begin
+        @test_logs (:warn, r"Dependency Libuuid_jll does not have a mapping for artifact Libuuid for platform") begin
             # This test _must_ be verbose, so we catch the appropriate logs
             artifact_paths = collect_artifact_paths(["Libuuid_jll"]; platform=Platform("x86_64", "macos"), verbose=true)
-            @test isempty(artifact_paths)
+            @test only(keys(artifact_paths)).name == "Libuuid_jll"
+            @test isempty(flatten_artifact_paths(artifact_paths))
         end
     end
 
