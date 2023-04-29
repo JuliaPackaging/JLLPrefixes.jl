@@ -3,6 +3,7 @@ using Base: UUID
 
 # Pkg.PackageSpec return different types in different Julia versions so...
 const PkgSpec = typeof(Pkg.PackageSpec(name="dummy"))
+const VersionSpec = Pkg.Types.VersionSpec
 
 # If we don't have `stdlib_version` from Pkg, recreate it ourselves
 if !isdefined(Pkg.Types, :stdlib_version)
