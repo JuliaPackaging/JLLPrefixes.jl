@@ -21,3 +21,4 @@ The files are now available to be used outside of Julia!  No more `LD_LIBRARY_PA
 By default, `JLLPrefixes` will attempt to use `hardlink()` to hit the sweet spot of performance (hardlinking is faster than copying) and compatibility (executables with RPATHs and other relative paths embedded within them don't play well with symlinks).
 If you are unable to use hardlinks (e.g. your source and destination are located on different filesystems/devices) it will silently fall back to using `copy()`.
 If you require high performance and don't care about compatibility with executables with embedded relative paths, you can manually request `deploy_artifact_paths()` to use `symlink()` by passing `:symlink` as the `strategy` keyword argument.
+
