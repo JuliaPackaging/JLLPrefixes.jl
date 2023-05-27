@@ -229,3 +229,20 @@ end
     ]; platform=linux64_to_linux64, verbose)
     @test any(basename.(only([v for (k, v) in artifact_paths if k.name == "Binutils_jll"])) .== "cfacb1560e678d1d058d397d4b792f0d525ce5e1")
 end
+
+using JLLPrefixes: get_git_clones_dir, set_git_clones_dir!, cached_git_clone
+@testset "set_git_clones_dir!" begin
+    mktempdir() do clones_dir
+        old_clones_dir = get_git_clones_dir()
+        try
+            set_git_clones_dir!(clones_dir)
+            @test get_git_clones_dir() == clones_dir
+
+            path = cached_git_clone("https://github.com/JuliaBinaryWrappers/CompilerSupportLibraries_jll.jl")
+            @test startswith(path, clones_dir)
+        finally
+            set_git_clones_dir!(old_clones_dir)
+        end
+        @test get_git_clones_dir() == old_clones_dir
+    end
+end
