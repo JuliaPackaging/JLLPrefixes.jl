@@ -12,9 +12,19 @@ include("pkg_utils.jl")
 # Bring in helpers to deal with hardlinking, symlinking, etc...
 include("deployment.jl")
 
+global _git_clones_dir::Ref{String} = Ref{String}()
 function __init__()
     update_pkg_historical_stdlibs()
+
+    # Read in our `clones_dir` preference once
+    set_git_clones_dir!(@load_preference("clones_dir", @get_scratch!("git_clones")))
 end
+
+# provide programmatic way of setting it for this session
+function set_git_clones_dir!(clones_dir::String)
+    global _git_clones_dir[] = clones_dir
+end
+get_git_clones_dir() = _git_clones_dir[]
 
 """
     collect_artifact_metas(dependencies::Vector;

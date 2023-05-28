@@ -10,7 +10,7 @@ then a cached git repository will not be updated if the commit already exists lo
 """
 function cached_git_clone(url::String;
                           desired_commit::Union{Nothing,String} = nothing,
-                          clones_dir::String = @load_preference("clone_dir", @get_scratch!("git_clones")),
+                          clones_dir::String = get_git_clones_dir(),
                           verbose::Bool = false)
     quiet_args = String[]
     if !verbose
@@ -18,7 +18,7 @@ function cached_git_clone(url::String;
     end
 
     repo_path = joinpath(clones_dir, string(basename(url), "-", bytes2hex(sha256(url))))
-    if isdir(repo_path)
+    if isfile(joinpath(repo_path, "HEAD"))
         if verbose
             @info("Using cached git repository", url, repo_path)
         end
@@ -32,6 +32,9 @@ function cached_git_clone(url::String;
             run(git(["-C", repo_path, "fetch", quiet_args...]))
         end
     else
+        if isdir(repo_path)
+            rm(repo_path; recursive=true, force=true)
+        end
         if verbose
             @info("Cloning git repository", url, repo_path)
         end
