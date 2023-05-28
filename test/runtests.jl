@@ -1,9 +1,17 @@
-using Test, JLLPrefixes, Base.BinaryPlatforms, Pkg
+using Test, JLLPrefixes, Base.BinaryPlatforms, Pkg, Preferences
 using JLLPrefixes: PkgSpec, flatten_artifact_paths
 
 const verbose = false
 const linux64 = Platform("x86_64", "linux")
 const linux64_to_linux64 = Platform("x86_64", "linux"; target_arch="x86_64", target_os="linux", target_libc="glibc")
+
+# On windows, we run into `$GIT_DIR too big` errors a lot if our git clones
+# are nested too deeply, as they default to, when using scratchspaces.
+# So here we just set them to be stored in a much shorter dirname:
+if Sys.iswindows()
+    JLLPrefixes.set_git_clones_dir!(mktempdir())
+end
+
 
 @testset "JLL collection" begin
     function check_zstd_jll(zstd_pkgspec, zstd_artifacts)
