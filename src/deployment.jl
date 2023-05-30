@@ -174,7 +174,7 @@ function probe_strategy(dest::String, artifact_paths::Vector{String})
         end
     catch e
         # If we got an error from trying to hardlink something, fail out.
-        if isa(e, Base.IOError) && e.code == -Base.Libc.EXDEV
+        if isa(e, Base.IOError) && e.code ∈ (-Base.Libc.EXDEV, Base.UV_EXDEV)
             return :copy
         end
 
