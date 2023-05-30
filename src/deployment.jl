@@ -159,10 +159,20 @@ strategy.
 """
 function probe_strategy(dest::String, artifact_paths::Vector{String})
     probe_target = joinpath(dest, "jllprefix.probe")
+    rm(probe_target; force=true)
     mkpath(dest)
 
+    # Assume that if arifacts are within the same depot, they're on the same filesystem.
+    depot_paths = Dict{String,String}()
+    for path in artifact_paths
+        depot = dirname(dirname(path))
+        if !haskey(depot_paths, depot)
+            depot_paths[depot] = path
+        end
+    end
+
     try
-        for src in artifact_paths
+        for src in values(depot_paths)
             for (root, dirs, files) in walkdir(src)
                 # Just try to hardlink one file to the destination
                 if !isempty(files)
