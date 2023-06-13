@@ -64,8 +64,8 @@ function collect_artifact_metas(dependencies::Vector{PkgSpec};
         julia_version = VersionNumber(platform["julia_version"])
     end
 
-    # Until https://github.com/JuliaLang/julia/pull/48749 is resolved...
-    if !haskey(platform, "sanitize")
+    # Julia versions without https://github.com/JuliaLang/julia/pull/49502 need a workaround...
+    if VERSION < v"1.10.0" && !haskey(platform, "sanitize")
         platform["sanitize"] = "false"
     end
 
