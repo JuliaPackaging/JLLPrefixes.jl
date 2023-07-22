@@ -30,6 +30,7 @@ function cached_git_clone(url::String;
         # multiple builders on the same machine all fetching at once.
         if desired_commit === nothing || !iscommit(repo_path, desired_commit)
             run(git(["-C", repo_path, "fetch", quiet_args...]))
+            run(git(["-C", repo_path, "reset", "FETCH_HEAD", "--soft", quiet_args...]))
         end
     else
         if isdir(repo_path)
