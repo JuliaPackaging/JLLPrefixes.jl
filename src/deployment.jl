@@ -94,7 +94,6 @@ function copy_tree(dest::AbstractString, src::AbstractString; verbose::Bool=true
                     @warn("File $(f) from $(dirname(src_file)) already exists in $(dest)")
                 end
             else
-                # If it's already a symlink, copy over the exact symlink target
                 cp(src_file, dest_file)
             end
         end
@@ -137,8 +136,12 @@ function hardlink_tree(dest::AbstractString, src::AbstractString; verbose::Bool=
                     @warn("File $(f) from $(dirname(src_file)) already exists in $(dest)")
                 end
             else
-                # If it's already a symlink, copy over the exact symlink target
-                hardlink(src_file, dest_file)
+                if islink(src_file)
+                    # If it's already a symlink, copy over the exact symlink target
+                    symlink(readlink(src_file), dest_file)
+                else
+                    hardlink(src_file, dest_file)
+                end
             end
         end
     end
