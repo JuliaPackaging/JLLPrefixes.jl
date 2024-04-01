@@ -75,6 +75,17 @@ function get_addable_spec(name::AbstractString, version::VersionNumber;
     # First, resolve the UUID
     uuid = first(Pkg.Types.registry_resolve!(ctx.registries, Pkg.Types.PackageSpec(;name))).uuid
 
+    # Ensure that all fields of `version` are present, e.g. if there's no build number insert one:
+    if isempty(version.build)
+        version = VersionNumber(
+            version.major,
+            version.minor,
+            version.patch,
+            (),
+            (UInt64(0),),
+        )
+    end
+
     # Next, determine the tree hash from the registry
     repo_urls = Set{String}()
     tree_hashes = Set{Base.SHA1}()

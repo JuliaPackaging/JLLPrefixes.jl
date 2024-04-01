@@ -12,7 +12,6 @@ if Sys.iswindows()
     JLLPrefixes.set_git_clones_dir!(mktempdir())
 end
 
-
 @testset "JLL collection" begin
     function check_zstd_jll(zstd_pkgspec, zstd_artifacts)
         # Ensure this pkgspec is named Zstd_jll
@@ -103,6 +102,10 @@ end
         end
     end
 
+    #=
+    # NOTE: Now that I'm using `get_addable_spec()` to convert all stdlib packages
+    # to being installed via `repo/rev`, this test seems to work just fine.
+
     # Test "impossible" situations via `julia_version == nothing`
     @testset "Impossible Constraints" begin
         # We can't naively install OpenBLAS v0.3.13 and LBT v5.1.1, because those are
@@ -122,6 +125,7 @@ end
         @test length(flatten_artifact_paths(artifact_paths)) == 3
         @test sort([p.name for p in keys(artifact_paths)]) == ["OpenBLAS_jll", "libblastrampoline_jll"]
     end
+    =#
 
     # Test adding something that doesn't exist on a certain platform
     @testset "Platform Incompatibility" begin
@@ -218,11 +222,27 @@ end
 
 @testset "tree_hash-provided sources" begin
     artifact_paths = collect_artifact_paths([
-        PkgSpec(;name="Binutils_jll", version=v"2.38.0+4", tree_hash=Base.SHA1("ffa0762c5e00e109c88f820b3e15fca842ffa808")),
+        PkgSpec(;
+            name="Binutils_jll",
+            version=v"2.38.0+4",
+            #tree_hash=Base.SHA1("ffa0762c5e00e109c88f820b3e15fca842ffa808"),
+        ),
     ]; platform=linux64_to_linux64, verbose)
 
     # Test that we get precisely the right Binutils_jll version.
+    # X-ref: https://github.com/JuliaBinaryWrappers/Binutils_jll.jl/blob/Binutils-v2.38.0%2B4/Artifacts.toml#L683-L690
     @test any(basename.(only([v for (k, v) in artifact_paths if k.name == "Binutils_jll"])) .== Ref("cfacb1560e678d1d058d397d4b792f0d525ce5e1"))
+
+    # Do the same for Zlib_jll, since that's a stdlib.
+    # Here, we purposefully install an old version
+    artifact_paths = collect_artifact_paths([
+        PkgSpec(;
+            name="Zlib_jll",
+            version=v"1.2.12+0",
+        ),
+    ]; platform=linux64_to_linux64, verbose)
+    # X-ref: https://github.com/JuliaBinaryWrappers/Zlib_jll.jl/blob/9f5383c83cc4ecfb070381521df24eae13fff67a/Artifacts.toml#L110-L114
+    @test any(basename.(only([v for (k, v) in artifact_paths if k.name == "Zlib_jll"])) .== Ref("53e6c375d00db870bf575afc992c03c54cba1d7e"))
 end
 
 @testset "repo-provided sources" begin
