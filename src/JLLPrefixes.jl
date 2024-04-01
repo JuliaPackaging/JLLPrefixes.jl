@@ -48,16 +48,6 @@ function collect_artifact_metas(dependencies::Vector{PkgSpec};
                                 project_dir::AbstractString = mktempdir(),
                                 pkg_depot::AbstractString = Pkg.depots1(),
                                 verbose::Bool = false)
-    # It's not legal to provide a version alongside a `repo`
-    function filter_redundant_version(p::PkgSpec)
-        if p.repo.source !== nothing || p.repo.rev !== nothing
-            p.version = Pkg.Types.VersionSpec()
-        end
-        return p
-    end
-    dependencies = filter_redundant_version.(dependencies)
-    dependencies_names = [d.name for d in dependencies]
-
     # Get julia version specificity, if it exists, from the `Platform` object
     julia_version = nothing
     if haskey(platform, "julia_version")
@@ -85,8 +75,29 @@ function collect_artifact_metas(dependencies::Vector{PkgSpec};
         # a brand-new depot, we need to install them first!
         ctx = Pkg.Types.Context(;julia_version)
 
-        # Add all dependencies to our project
-        Pkg.add(ctx, dependencies; platform, io=pkg_io)
+        # We need UUIDs so that we can ask things like `is_stdlib()` later
+        Pkg.Types.stdlib_resolve!(dependencies)
+
+        # Normalize `version`, `treehash`, `repo`, etc...
+        # If a `repo` is given we're always happy, but make sure to blank out `version` as it's illegal to specify both.
+        # If `repo` is not given, we need to check to see if `dep` is a standard library, as if it is, we actually
+        # need to have `repo` specified if `version` or `treehash` are set.  This is because of `Pkg` internals that
+        # ignore `treehash` and `version` but not `repo` for stdlibs.
+        dependencies = map(dependencies) do dep
+            if dep.uuid !== nothing && Pkg.Types.is_stdlib(dep.uuid) && dep.version != Pkg.Types.VersionSpec()
+                dep = get_addable_spec(dep.name, dep.version; ctx)
+            end
+
+            if dep.repo.source !== nothing || dep.repo.rev !== nothing
+                # It's illegal to specify both `version` and `repo`
+                dep.version = Pkg.Types.VersionSpec()
+            end
+            return dep
+        end
+        dependencies_names = [d.name for d in dependencies]
+
+        # Add all dependencies to our project.
+        Pkg.add(ctx, dependencies; platform, io=pkg_io, julia_version=julia_version)
 
         # On Julia v1.6, `Pkg.add()` doesn't mutate `dependencies`, so we can't use the `UUID`
         # that was found during resolution there.  Instead, we'll make use of `ctx.env` to figure
@@ -109,7 +120,7 @@ function collect_artifact_metas(dependencies::Vector{PkgSpec};
         # Check for stdlibs lurking in the installed JLLs
         stdlib_pkgspecs = PkgSpec[]
         for dep in installed_jlls
-            # If the `tree_hash` is `nothing`, then this JLL was treated as an stdlib
+            # Check for dependencies that didn't actually get installed (typically stdlibs)
             if dep.tree_hash === nothing
                 # Figure out what version this stdlib _should_ be at for this version
                 dep.version = stdlib_version(dep.uuid, julia_version)
