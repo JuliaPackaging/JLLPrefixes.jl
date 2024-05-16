@@ -72,11 +72,38 @@ end
     # Kick it up a notch; start involving dependencies
     @testset "XML2_jll ($(linux64), v2.9.12+0, dependencies)" begin
         # Lock XML2_jll to v2.9 in case it adds more dependencies in the future
-        artifact_paths = collect_artifact_paths([PkgSpec(;name="XML2_jll", version=v"2.9.12+0")]; platform=linux64, verbose)
+        artifact_paths = collect_artifact_paths(
+            [PkgSpec(;name="XML2_jll", version=v"2.9.12+0")];
+            platform=linux64,
+            verbose,
+        )
 
         @test length(artifact_paths) == 1
         @test sort([p.name for p in keys(artifact_paths)]) == ["XML2_jll"]
         @test length(only(values(artifact_paths))) == 3
+    end
+
+    @testset "Honor existant JLL versions" begin
+        mktempdir() do project_dir
+            # First, we install a specific Zlib_jll into our environment, an
+            # old version that will not be selected by a future `Pkg.add()`
+            artifact_paths = collect_artifact_paths(
+                [PkgSpec(;name="Zlib_jll", version=v"1.2.11+3")];
+                platform=linux64,
+                project_dir,
+                verbose,
+            )
+            zlib_path = only(only(values(artifact_paths)))
+
+            # Next, we ensure that this exact same zlib is used when installing `XML2_jll` here:
+            artifact_paths = collect_artifact_paths(
+                [PkgSpec(;name="XML2_jll", version=v"2.9.12+0")];
+                platform=linux64,
+                project_dir,
+                verbose,
+            )
+            @test zlib_path ∈ only(values(artifact_paths))
+        end
     end
 
     # Install two packages that have nothing to do with eachother at the same time

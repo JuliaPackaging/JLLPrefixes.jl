@@ -78,12 +78,37 @@ function collect_artifact_metas(dependencies::Vector{PkgSpec};
         # We need UUIDs so that we can ask things like `is_stdlib()` later
         Pkg.Types.stdlib_resolve!(dependencies)
 
+        function find_manifest_entry(dep)
+            if haskey(ctx.env.manifest.deps, dep.uuid)
+                return ctx.env.manifest.deps[dep.uuid]
+            end
+            for (uuid, entry) in ctx.env.manifest.deps
+                if entry.name == dep.name
+                    return entry
+                end
+            end
+            return nothing
+        end
+
         # Normalize `version`, `treehash`, `repo`, etc...
         # If a `repo` is given we're always happy, but make sure to blank out `version` as it's illegal to specify both.
         # If `repo` is not given, we need to check to see if `dep` is a standard library, as if it is, we actually
         # need to have `repo` specified if `version` or `treehash` are set.  This is because of `Pkg` internals that
         # ignore `treehash` and `version` but not `repo` for stdlibs.
         dependencies = map(dependencies) do dep
+            pkg_entry = find_manifest_entry(dep)
+            # If our manifest already has a mapping for this dependency, just use that.
+            if pkg_entry !== nothing
+                dep = PackageSpec(;
+                    name = pkg_entry.name,
+                    uuid = pkg_entry.uuid,
+                    version = pkg_entry.version,
+                    tree_hash = pkg_entry.tree_hash,
+                    path = pkg_entry.path,
+                    repo = pkg_entry.repo,
+                )
+            end
+
             if dep.uuid !== nothing && Pkg.Types.is_stdlib(dep.uuid) && dep.version != Pkg.Types.VersionSpec()
                 dep = get_addable_spec(dep.name, dep.version; ctx)
             end
@@ -114,6 +139,7 @@ function collect_artifact_metas(dependencies::Vector{PkgSpec};
                 name=pkg.name,
                 uuid,
                 tree_hash=pkg.tree_hash,
+                path=pkg.path,
             ) for (uuid, pkg) in ctx.env.manifest if uuid ∈ installed_jll_uuids
         ]
 
@@ -121,7 +147,7 @@ function collect_artifact_metas(dependencies::Vector{PkgSpec};
         stdlib_pkgspecs = PkgSpec[]
         for dep in installed_jlls
             # Check for dependencies that didn't actually get installed (typically stdlibs)
-            if dep.tree_hash === nothing
+            if dep.tree_hash === nothing && dep.path === nothing
                 # Figure out what version this stdlib _should_ be at for this version
                 dep.version = stdlib_version(dep.uuid, julia_version)
 
@@ -142,7 +168,11 @@ function collect_artifact_metas(dependencies::Vector{PkgSpec};
 
         # Load their Artifacts.toml files
         for dep in installed_jlls
-            dep_path = Pkg.Operations.find_installed(dep.name, dep.uuid, dep.tree_hash)
+            if dep.path !== nothing
+                dep_path = dep.path
+            else
+                dep_path = Pkg.Operations.find_installed(dep.name, dep.uuid, dep.tree_hash)
+            end
             dep_dep_uuids = [uuid for (_, uuid) in ctx.env.manifest[dep.uuid].deps if any(jll.uuid == uuid for jll in installed_jlls)]
 
             # Skip dependencies that didn't get installed, but warn as this should never happen
@@ -164,18 +194,21 @@ function collect_artifact_metas(dependencies::Vector{PkgSpec};
 
             # If the artifact is available for the given platform, make sure it
             # is also installed.  It may not be the case for lazy artifacts.
-            meta = artifact_meta(dep.name[1:end-4], artifacts_toml; platform)
+            meta = artifact_meta("default", artifacts_toml; platform)
             if meta === nothing
-                # This only gets printed if we're verbose, as this can be kind of common
-                if verbose
-                    @warn("Dependency $(dep.name) does not have a mapping for artifact $(dep.name[1:end-4]) for platform $(triplet(platform))")
+                meta = artifact_meta(dep.name[1:end-4], artifacts_toml; platform)
+                if meta === nothing
+                    # This only gets printed if we're verbose, as this can be kind of common
+                    if verbose
+                        @warn("Dependency $(dep.name) does not have a mapping for artifact $(dep.name[1:end-4]) for platform $(triplet(platform))")
+                    end
+                    # Save an empty mapping in `artifact_metas` so that we can pass through transitive dependencies
+                    artifact_metas[dep] = Dict(
+                        "paths" => String[],
+                        "dep_uuids" => dep_dep_uuids,
+                    )
+                    continue
                 end
-                # Save an empty mapping in `artifact_metas` so that we can pass through transitive dependencies
-                artifact_metas[dep] = Dict(
-                    "paths" => String[],
-                    "dep_uuids" => dep_dep_uuids,
-                )
-                continue
             end
             meta = copy(meta)
 
@@ -205,6 +238,13 @@ function collect_artifact_metas(pkg_names::Vector{<:AbstractString}; kwargs...)
         [PackageSpec(; name) for name in pkg_names];
         kwargs...
     )
+end
+
+function pkg_dep_match(pkg, dep)
+    if pkg.uuid !== nothing && dep.uuid !== nothing
+        return pkg.uuid == dep.uuid
+    end
+    return pkg.name == dep.name
 end
 
 """
@@ -237,7 +277,7 @@ function collect_artifact_paths(dependencies::Vector{PackageSpec}; kwargs...)
     collected_paths = Dict{PkgSpec,Vector{String}}()
     for dep in dependencies
         # Find corresponding key in `meta_mappings`
-        pkgs = [pkg for (pkg, _) in meta_mappings if pkg.uuid == dep.uuid]
+        pkgs = [pkg for (pkg, _) in meta_mappings if pkg_dep_match(pkg, dep)]
         if isempty(pkgs)
             @warn("Unable to find installed artifact for $(dep.name)")
             continue
