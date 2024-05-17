@@ -39,6 +39,9 @@ end
             artifact_paths = collect_artifact_paths(["Zstd_jll"]; platform, verbose)
             check_zstd_jll(first(artifact_paths)...)
 
+            # Ensure that `platform` is not mutated
+            @test !haskey(tags(platform), "sanitize")
+
             # Test that we're getting the kind of dynamic library we expect
             artifact_dir = first(first(values(artifact_paths)))
             if os(platform) == "windows"
