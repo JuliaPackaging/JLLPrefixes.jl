@@ -56,6 +56,7 @@ function collect_artifact_metas(dependencies::Vector{PkgSpec};
 
     # Julia versions without https://github.com/JuliaLang/julia/pull/49502 need a workaround...
     if VERSION < v"1.10.0" && !haskey(platform, "sanitize")
+        platform = deepcopy(platform)
         platform["sanitize"] = "false"
     end
 
