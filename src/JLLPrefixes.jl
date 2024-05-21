@@ -108,9 +108,7 @@ function collect_artifact_metas(dependencies::Vector{PkgSpec};
                     path = pkg_entry.path,
                     repo = pkg_entry.repo,
                 )
-            end
-
-            if dep.uuid !== nothing && Pkg.Types.is_stdlib(dep.uuid) && dep.version != Pkg.Types.VersionSpec()
+            elseif dep.uuid !== nothing && Pkg.Types.is_stdlib(dep.uuid) && dep.version != Pkg.Types.VersionSpec()
                 dep = get_addable_spec(dep.name, dep.version; ctx)
             end
 
