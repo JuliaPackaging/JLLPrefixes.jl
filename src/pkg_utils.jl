@@ -170,11 +170,12 @@ function update_registry(outs = stdout)
     end
 end
 
-# We now have more up-to-date information on what the historical stdlibs are
-# than Pkg does (and indeed, newer versions require us to do this)
 function update_pkg_historical_stdlibs()
-    append!(empty!(Pkg.Types.STDLIBS_BY_VERSION), HistoricalStdlibVersions.STDLIBS_BY_VERSION)
-    merge!(empty!(Pkg.Types.UNREGISTERED_STDLIBS), HistoricalStdlibVersions.UNREGISTERED_STDLIBS)
+    # If we're using v1.x, we need to manually install these.
+    if pkgversion(HistoricalStdlibVersions) < v"2"
+        append!(empty!(Pkg.Types.STDLIBS_BY_VERSION), HistoricalStdlibVersions.STDLIBS_BY_VERSION)
+        merge!(empty!(Pkg.Types.UNREGISTERED_STDLIBS), HistoricalStdlibVersions.UNREGISTERED_STDLIBS)
+    end
     return nothing
 end
 
