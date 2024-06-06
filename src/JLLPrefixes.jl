@@ -193,21 +193,18 @@ function collect_artifact_metas(dependencies::Vector{PkgSpec};
 
             # If the artifact is available for the given platform, make sure it
             # is also installed.  It may not be the case for lazy artifacts.
-            meta = artifact_meta("default", artifacts_toml; platform)
+            meta = artifact_meta(dep.name[1:end-4], artifacts_toml; platform)
             if meta === nothing
-                meta = artifact_meta(dep.name[1:end-4], artifacts_toml; platform)
-                if meta === nothing
-                    # This only gets printed if we're verbose, as this can be kind of common
-                    if verbose
-                        @warn("Dependency $(dep.name) does not have a mapping for artifact $(dep.name[1:end-4]) for platform $(triplet(platform))")
-                    end
-                    # Save an empty mapping in `artifact_metas` so that we can pass through transitive dependencies
-                    artifact_metas[dep] = Dict(
-                        "paths" => String[],
-                        "dep_uuids" => dep_dep_uuids,
-                    )
-                    continue
+                # This only gets printed if we're verbose, as this can be kind of common
+                if verbose
+                    @warn("Dependency $(dep.name) does not have a mapping for artifact $(dep.name[1:end-4]) for platform $(triplet(platform))")
                 end
+                # Save an empty mapping in `artifact_metas` so that we can pass through transitive dependencies
+                artifact_metas[dep] = Dict(
+                    "paths" => String[],
+                    "dep_uuids" => dep_dep_uuids,
+                )
+                continue
             end
             meta = copy(meta)
 
