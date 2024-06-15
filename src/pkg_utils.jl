@@ -184,7 +184,7 @@ end
 
 function update_pkg_historical_stdlibs()
     # If we're using v1.x, we need to manually install these.
-    if pkgversion(HistoricalStdlibVersions) < v"2"
+    if !isdefined(HistoricalStdlibVersions, :register!)
         append!(empty!(Pkg.Types.STDLIBS_BY_VERSION), HistoricalStdlibVersions.STDLIBS_BY_VERSION)
         merge!(empty!(Pkg.Types.UNREGISTERED_STDLIBS), HistoricalStdlibVersions.UNREGISTERED_STDLIBS)
     end
