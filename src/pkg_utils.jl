@@ -40,6 +40,18 @@ else
     end
 end
 
+if isdefined(Pkg, :should_autoprecompile)
+    function with_no_auto_precompilation(f::Function)
+        withenv("JULIA_PKG_PRECOMPILE_AUTO" => "false") do
+            return f()
+        end
+    end
+else
+    function with_no_auto_precompilation(f::Function)
+        return f()
+    end
+end
+
 """
     collect_jll_uuids(manifest::Pkg.Types.Manifest, dependencies::Set{UUID})
 
