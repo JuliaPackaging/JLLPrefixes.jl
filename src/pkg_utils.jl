@@ -40,6 +40,18 @@ else
     end
 end
 
+if isdefined(Pkg, :should_autoprecompile)
+    function with_no_auto_precompilation(f::Function)
+        withenv("JULIA_PKG_PRECOMPILE_AUTO" => "false") do
+            return f()
+        end
+    end
+else
+    function with_no_auto_precompilation(f::Function)
+        return f()
+    end
+end
+
 """
     collect_jll_uuids(manifest::Pkg.Types.Manifest, dependencies::Set{UUID})
 
@@ -172,7 +184,7 @@ end
 
 function update_pkg_historical_stdlibs()
     # If we're using v1.x, we need to manually install these.
-    if pkgversion(HistoricalStdlibVersions) < v"2"
+    if !isdefined(HistoricalStdlibVersions, :register!)
         append!(empty!(Pkg.Types.STDLIBS_BY_VERSION), HistoricalStdlibVersions.STDLIBS_BY_VERSION)
         merge!(empty!(Pkg.Types.UNREGISTERED_STDLIBS), HistoricalStdlibVersions.UNREGISTERED_STDLIBS)
     end

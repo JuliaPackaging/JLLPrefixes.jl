@@ -66,7 +66,7 @@ function collect_artifact_metas(dependencies::Vector{PkgSpec};
     # We're going to create a project and install all dependent packages within
     # it, then create symlinks from those installed products to our build prefix
     deps_project = joinpath(project_dir, "Project.toml")
-    with_no_pkg_handrails() do; with_depot_path(pkg_depot) do; Pkg.activate(deps_project) do
+    with_no_pkg_handrails() do; with_no_auto_precompilation() do; with_depot_path(pkg_depot) do; Pkg.activate(deps_project) do
         pkg_io = verbose ? stdout : devnull
 
         # Update registry first, in case the jll packages we're looking for have just been registered/updated
@@ -225,7 +225,7 @@ function collect_artifact_metas(dependencies::Vector{PkgSpec};
             meta["dep_uuids"] = dep_dep_uuids
             artifact_metas[dep] = meta
         end
-    end; end; end
+    end; end; end; end
 
     return artifact_metas
 end
