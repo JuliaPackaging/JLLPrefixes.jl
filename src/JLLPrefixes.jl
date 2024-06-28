@@ -91,6 +91,18 @@ function collect_artifact_metas(dependencies::Vector{PkgSpec};
             return nothing
         end
 
+        function dep_is_resolved(dep)
+            # If we've picked out a repo/rev, we're resolved
+            if (dep.repo.source !== nothing && dep.repo.rev !== nothing)
+                return true
+            end
+            # If we've got a treehash set, we're resolved
+            if dep.tree_hash !== nothing
+                return true
+            end
+            return false
+        end
+
         # Normalize `version`, `treehash`, `repo`, etc...
         # If a `repo` is given we're always happy, but make sure to blank out `version` as it's illegal to specify both.
         # If `repo` is not given, we need to check to see if `dep` is a standard library, as if it is, we actually
@@ -98,18 +110,22 @@ function collect_artifact_metas(dependencies::Vector{PkgSpec};
         # ignore `treehash` and `version` but not `repo` for stdlibs.
         dependencies = map(dependencies) do dep
             pkg_entry = find_manifest_entry(dep)
-            # If our manifest already has a mapping for this dependency, just use that.
-            if pkg_entry !== nothing
-                dep = PackageSpec(;
-                    name = pkg_entry.name,
-                    uuid = pkg_entry.uuid,
-                    version = pkg_entry.version,
-                    tree_hash = pkg_entry.tree_hash,
-                    path = pkg_entry.path,
-                    repo = pkg_entry.repo,
-                )
-            elseif dep.uuid !== nothing && Pkg.Types.is_stdlib(dep.uuid) && dep.version != Pkg.Types.VersionSpec()
-                dep = get_addable_spec(dep.name, dep.version; ctx)
+            # If this dependency is not yet resolved, look in the manifest
+            if !dep_is_resolved(dep)
+                # If our manifest already has a mapping for this dependency, just use that.
+                if pkg_entry !== nothing
+                    dep = PackageSpec(;
+                        name = pkg_entry.name,
+                        uuid = pkg_entry.uuid,
+                        version = pkg_entry.version,
+                        tree_hash = pkg_entry.tree_hash,
+                        path = pkg_entry.path,
+                        repo = pkg_entry.repo,
+                    )
+                elseif dep.uuid !== nothing && Pkg.Types.is_stdlib(dep.uuid) && dep.version != Pkg.Types.VersionSpec()
+                    # Otherwise, if it's an stdlib, use that
+                    dep = get_addable_spec(dep.name, dep.version; ctx)
+                end
             end
 
             if dep.repo.source !== nothing || dep.repo.rev !== nothing
