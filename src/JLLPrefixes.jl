@@ -29,7 +29,8 @@ get_git_clones_dir() = _git_clones_dir[]
 """
     collect_artifact_metas(dependencies::Vector;
                            platform = HostPlatform(),
-                           verbose = false)
+                           verbose = false,
+                           from_current_manifest = false)
 
 Collect (recursive) JLL dependency artifact metadata for the given `platform`.  Returns
 a dictionary mapping each (recursive) dependency to its set of artifact metas, which
@@ -42,12 +43,17 @@ particular versions of a package just as you would with `Pkg.add()`.
 The `platform` keyword argument allows for collecting artifacts for a foreign platform,
 as well as a different Julia version.  This is especially useful for packages that are
 stdlibs, and thus locked to a single version based on the Julia version.
+
+If `from_current_manifest` is set to `true`, the function will use the versions from
+the current active environment's manifest instead of trying to `Pkg.add` them. This
+is useful for reproducing environments from a simple Manifest.toml.
 """
 function collect_artifact_metas(dependencies::Vector{PkgSpec};
                                 platform::AbstractPlatform = HostPlatform(),
                                 project_dir::AbstractString = mktempdir(),
                                 pkg_depot::AbstractString = Pkg.depots1(),
-                                verbose::Bool = false)
+                                verbose::Bool = false,
+                                from_current_manifest::Bool = false)
     # Get julia version specificity, if it exists, from the `Platform` object
     julia_version = nothing
     if haskey(platform, "julia_version")
@@ -63,130 +69,24 @@ function collect_artifact_metas(dependencies::Vector{PkgSpec};
     # This is what we will eventually return
     artifact_metas = Dict{PkgSpec, Dict}()
 
-    # We're going to create a project and install all dependent packages within
-    # it, then create symlinks from those installed products to our build prefix
-    deps_project = joinpath(project_dir, "Project.toml")
-    with_no_pkg_handrails() do; with_no_auto_precompilation() do; with_depot_path(pkg_depot) do; Pkg.activate(deps_project) do
-        pkg_io = verbose ? stdout : devnull
-
-        # Update registry first, in case the jll packages we're looking for have just been registered/updated
-        update_registry(pkg_io)
-
-        # Create `Context` object _after_ updating registries, as if we're in
-        # a brand-new depot, we need to install them first!
-        ctx = Pkg.Types.Context(;julia_version)
-
-        # We need UUIDs so that we can ask things like `is_stdlib()` later
-        Pkg.Types.stdlib_resolve!(dependencies)
-
-        function find_manifest_entry(dep)
-            if haskey(ctx.env.manifest.deps, dep.uuid)
-                return ctx.env.manifest.deps[dep.uuid]
-            end
-            for (uuid, entry) in ctx.env.manifest.deps
-                if entry.name == dep.name
-                    return entry
-                end
-            end
-            return nothing
-        end
-
-        function dep_is_resolved(dep)
-            # If we've picked out a repo/rev, we're resolved
-            if (dep.repo.source !== nothing && dep.repo.rev !== nothing)
-                return true
-            end
-            # If we've got a treehash set, we're resolved
-            if dep.tree_hash !== nothing
-                return true
-            end
-            return false
-        end
-
-        # Normalize `version`, `treehash`, `repo`, etc...
-        # If a `repo` is given we're always happy, but make sure to blank out `version` as it's illegal to specify both.
-        # If `repo` is not given, we need to check to see if `dep` is a standard library, as if it is, we actually
-        # need to have `repo` specified if `version` or `treehash` are set.  This is because of `Pkg` internals that
-        # ignore `treehash` and `version` but not `repo` for stdlibs.
-        dependencies = map(dependencies) do dep
-            pkg_entry = find_manifest_entry(dep)
-            # If this dependency is not yet resolved, look in the manifest
-            if !dep_is_resolved(dep)
-                # If our manifest already has a mapping for this dependency, just use that.
-                if pkg_entry !== nothing
-                    dep = PackageSpec(;
-                        name = pkg_entry.name,
-                        uuid = pkg_entry.uuid,
-                        version = pkg_entry.version,
-                        tree_hash = pkg_entry.tree_hash,
-                        path = pkg_entry.path,
-                        repo = pkg_entry.repo,
-                    )
-                elseif dep.uuid !== nothing && Pkg.Types.is_stdlib(dep.uuid) && dep.version != Pkg.Types.VersionSpec()
-                    # Otherwise, if it's an stdlib, use that
-                    dep = get_addable_spec(dep.name, dep.version; ctx)
-                end
-            end
-
-            if dep.repo.source !== nothing || dep.repo.rev !== nothing
-                # It's illegal to specify both `version` and `repo`
-                dep.version = Pkg.Types.VersionSpec()
-            end
-            return dep
-        end
-        dependencies_names = [d.name for d in dependencies]
-
-        # Add all dependencies to our project.
-        Pkg.add(ctx, dependencies; platform, io=pkg_io, julia_version=julia_version)
-
-        # On Julia v1.6, `Pkg.add()` doesn't mutate `dependencies`, so we can't use the `UUID`
-        # that was found during resolution there.  Instead, we'll make use of `ctx.env` to figure
-        # out the UUIDs of all our packages.
-        dependency_uuids = Set([uuid for (uuid, pkg) in ctx.env.manifest if pkg.name ∈ dependencies_names])
-
-        # Some JLLs are also standard libraries that may be present in the manifest because
-        # they were pulled by other stdlibs (e.g. through dependence on `Pkg`), not beacuse
-        # they were actually required for this package. Filter them out if they're present
-        # in the manifest but aren't direct dependencies or dependencies of other JLLS.
-        installed_jll_uuids = collect_jll_uuids(ctx.env.manifest, dependency_uuids)
-        installed_jlls = [
-            PkgSpec(;
-                name=pkg.name,
-                uuid,
-                tree_hash=pkg.tree_hash,
-                path=pkg.path,
-            ) for (uuid, pkg) in ctx.env.manifest if uuid ∈ installed_jll_uuids
-        ]
-
-        # Check for stdlibs lurking in the installed JLLs
-        stdlib_pkgspecs = PkgSpec[]
-        for dep in installed_jlls
-            # Check for dependencies that didn't actually get installed (typically stdlibs)
-            if dep.tree_hash === nothing && dep.path === nothing
-                # Figure out what version this stdlib _should_ be at for this version
-                dep.version = stdlib_version(dep.uuid, julia_version)
-
-                # Interrogate the registry to determine the correct treehash
-                Pkg.Operations.load_tree_hash!(ctx.registries, dep, nothing)
-
-                # We'll still use `Pkg.add()` to install the version we want, even though
-                # we've used the above two lines to figure out the treehash, so construct
-                # an addable spec that will get the correct bits down on disk.
-                push!(stdlib_pkgspecs, get_addable_spec(dep.name, dep.version; verbose))
-            end
-        end
-
-        # Re-install stdlib dependencies, but this time with `julia_version = nothing`
-        if !isempty(stdlib_pkgspecs)
-            Pkg.add(ctx, stdlib_pkgspecs; io=pkg_io, julia_version=nothing)
-        end
-
+    # Function to process artifacts whether we're using current manifest or creating new project
+    function process_artifacts(ctx, installed_jlls, pkg_io)
         # Load their Artifacts.toml files
         for dep in installed_jlls
             if dep.path !== nothing
                 dep_path = dep.path
-            else
+            elseif dep.tree_hash !== nothing
                 dep_path = Pkg.Operations.find_installed(dep.name, dep.uuid, dep.tree_hash)
+            else
+                # For packages without tree_hash (like stdlib packages in current manifest)
+                # Try to find them via module loading
+                dep_path = nothing
+                try
+                    mod = Base.require(Base.PkgId(dep.uuid, dep.name))
+                    dep_path = dirname(dirname(pathof(mod)))
+                catch
+                    # If we can't load the module, we'll warn below
+                end
             end
             dep_dep_uuids = [uuid for (_, uuid) in ctx.env.manifest[dep.uuid].deps if any(jll.uuid == uuid for jll in installed_jlls)]
 
@@ -241,7 +141,150 @@ function collect_artifact_metas(dependencies::Vector{PkgSpec};
             meta["dep_uuids"] = dep_dep_uuids
             artifact_metas[dep] = meta
         end
-    end; end; end; end
+    end
+
+    pkg_io = verbose ? stdout : devnull
+
+    # We need UUIDs so that we can ask things like `is_stdlib()` later
+    Pkg.Types.stdlib_resolve!(dependencies)
+
+    # If from_current_manifest is true, we'll use the current environment instead of creating a new one
+    if from_current_manifest
+        # Get the current environment's context
+        ctx = Pkg.Types.Context(;julia_version)
+
+        # Get the JLL packages from current manifest
+        dependencies_names = [d.name for d in dependencies]
+        dependency_uuids = Set([uuid for (uuid, pkg) in ctx.env.manifest if pkg.name ∈ dependencies_names])
+
+        # Collect all JLL dependencies
+        installed_jll_uuids = collect_jll_uuids(ctx.env.manifest, dependency_uuids)
+        installed_jlls = [
+            PkgSpec(;
+                name=pkg.name,
+                uuid,
+                tree_hash=pkg.tree_hash,
+                path=pkg.path,
+            ) for (uuid, pkg) in ctx.env.manifest if uuid ∈ installed_jll_uuids
+        ]
+
+        process_artifacts(ctx, installed_jlls, pkg_io)
+    else
+        # Create new project and install packages
+        deps_project = joinpath(project_dir, "Project.toml")
+        with_no_pkg_handrails() do; with_no_auto_precompilation() do; with_depot_path(pkg_depot) do; Pkg.activate(deps_project) do
+            # Update registry first, in case the jll packages we're looking for have just been registered/updated
+            update_registry(pkg_io)
+
+            # Create `Context` object _after_ updating registries, as if we're in
+            # a brand-new depot, we need to install them first!
+            ctx = Pkg.Types.Context(;julia_version)
+
+            function find_manifest_entry(dep)
+                if haskey(ctx.env.manifest.deps, dep.uuid)
+                    return ctx.env.manifest.deps[dep.uuid]
+                end
+                for (uuid, entry) in ctx.env.manifest.deps
+                    if entry.name == dep.name
+                        return entry
+                    end
+                end
+                return nothing
+            end
+
+            function dep_is_resolved(dep)
+                # If we've picked out a repo/rev, we're resolved
+                if (dep.repo.source !== nothing && dep.repo.rev !== nothing)
+                    return true
+                end
+                # If we've got a treehash set, we're resolved
+                if dep.tree_hash !== nothing
+                    return true
+                end
+                return false
+            end
+
+            # Normalize `version`, `treehash`, `repo`, etc...
+            # If a `repo` is given we're always happy, but make sure to blank out `version` as it's illegal to specify both.
+            # If `repo` is not given, we need to check to see if `dep` is a standard library, as if it is, we actually
+            # need to have `repo` specified if `version` or `treehash` are set.  This is because of `Pkg` internals that
+            # ignore `treehash` and `version` but not `repo` for stdlibs.
+            dependencies = map(dependencies) do dep
+                pkg_entry = find_manifest_entry(dep)
+                # If this dependency is not yet resolved, look in the manifest
+                if !dep_is_resolved(dep)
+                    # If our manifest already has a mapping for this dependency, just use that.
+                    if pkg_entry !== nothing
+                        dep = PackageSpec(;
+                            name = pkg_entry.name,
+                            uuid = pkg_entry.uuid,
+                            version = pkg_entry.version,
+                            tree_hash = pkg_entry.tree_hash,
+                            path = pkg_entry.path,
+                            repo = pkg_entry.repo,
+                        )
+                    elseif dep.uuid !== nothing && Pkg.Types.is_stdlib(dep.uuid) && dep.version != Pkg.Types.VersionSpec()
+                        # Otherwise, if it's an stdlib, use that
+                        dep = get_addable_spec(dep.name, dep.version; ctx)
+                    end
+                end
+
+                if dep.repo.source !== nothing || dep.repo.rev !== nothing
+                    # It's illegal to specify both `version` and `repo`
+                    dep.version = Pkg.Types.VersionSpec()
+                end
+                return dep
+            end
+            dependencies_names = [d.name for d in dependencies]
+
+            # Add all dependencies to our project.
+            Pkg.add(ctx, dependencies; platform, io=pkg_io, julia_version=julia_version)
+
+            # On Julia v1.6, `Pkg.add()` doesn't mutate `dependencies`, so we can't use the `UUID`
+            # that was found during resolution there.  Instead, we'll make use of `ctx.env` to figure
+            # out the UUIDs of all our packages.
+            dependency_uuids = Set([uuid for (uuid, pkg) in ctx.env.manifest if pkg.name ∈ dependencies_names])
+
+            # Some JLLs are also standard libraries that may be present in the manifest because
+            # they were pulled by other stdlibs (e.g. through dependence on `Pkg`), not beacuse
+            # they were actually required for this package. Filter them out if they're present
+            # in the manifest but aren't direct dependencies or dependencies of other JLLS.
+            installed_jll_uuids = collect_jll_uuids(ctx.env.manifest, dependency_uuids)
+            installed_jlls = [
+                PkgSpec(;
+                    name=pkg.name,
+                    uuid,
+                    tree_hash=pkg.tree_hash,
+                    path=pkg.path,
+                ) for (uuid, pkg) in ctx.env.manifest if uuid ∈ installed_jll_uuids
+            ]
+
+            # Check for stdlibs lurking in the installed JLLs
+            stdlib_pkgspecs = PkgSpec[]
+            for dep in installed_jlls
+                # Check for dependencies that didn't actually get installed (typically stdlibs)
+                if dep.tree_hash === nothing && dep.path === nothing
+                    # Figure out what version this stdlib _should_ be at for this version
+                    dep.version = stdlib_version(dep.uuid, julia_version)
+
+                    # Interrogate the registry to determine the correct treehash
+                    Pkg.Operations.load_tree_hash!(ctx.registries, dep, nothing)
+
+                    # We'll still use `Pkg.add()` to install the version we want, even though
+                    # we've used the above two lines to figure out the treehash, so construct
+                    # an addable spec that will get the correct bits down on disk.
+                    push!(stdlib_pkgspecs, get_addable_spec(dep.name, dep.version; verbose))
+                end
+            end
+
+            # Re-install stdlib dependencies, but this time with `julia_version = nothing`
+            if !isempty(stdlib_pkgspecs)
+                Pkg.add(ctx, stdlib_pkgspecs; io=pkg_io, julia_version=nothing)
+            end
+
+            process_artifacts(ctx, installed_jlls, pkg_io)
+        end; end; end; end
+    end
 
     return artifact_metas
 end

@@ -22,7 +22,7 @@ function cached_git_clone(url::String;
         if verbose
             @info("Using cached git repository", url, repo_path)
         end
-        
+
         # If we didn't just mercilessly obliterate the cached git repo, use it!
         # In some cases, we know the hash we're looking for, so only fetch() if
         # this git repository doesn't contain the hash we're seeking.

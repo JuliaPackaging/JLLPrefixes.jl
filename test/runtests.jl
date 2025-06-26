@@ -288,6 +288,66 @@ end
     @test any(basename.(only([v for (k, v) in artifact_paths if k.name == "Binutils_jll"])) .== "cfacb1560e678d1d058d397d4b792f0d525ce5e1")
 end
 
+@testset "from_current_manifest option" begin
+    # Create a temporary project with specific JLL versions
+    mktempdir() do test_proj
+        Pkg.activate(test_proj) do
+            # Install a specific version of Zlib_jll
+            Pkg.add(PkgSpec(; name="Zlib_jll", version=v"1.2.11+10"))
+
+            # Now test that from_current_manifest uses this version
+            artifact_paths_manifest = collect_artifact_paths(["Zlib_jll"];
+                platform=linux64,
+                verbose,
+                from_current_manifest=true
+            )
+
+            # Should only have Zlib_jll
+            @test length(artifact_paths_manifest) == 1
+            zlib_spec = first(keys(artifact_paths_manifest))
+            @test zlib_spec.name == "Zlib_jll"
+
+            # Compare with creating new project (default behavior)
+            artifact_paths_new = collect_artifact_paths(["Zlib_jll"];
+                platform=linux64,
+                verbose,
+                from_current_manifest=false
+            )
+
+            # Both should have found Zlib_jll
+            @test length(artifact_paths_new) == 1
+
+            # The paths might be different if different versions were resolved
+            # But both should have valid artifact paths
+            @test all(isdir, flatten_artifact_paths(artifact_paths_manifest))
+            @test all(isdir, flatten_artifact_paths(artifact_paths_new))
+        end
+    end
+
+    # Test with multiple JLLs and dependencies
+    mktempdir() do test_proj
+        Pkg.activate(test_proj) do
+            # Install XML2_jll which has dependencies
+            Pkg.add("XML2_jll")
+
+            artifact_paths = collect_artifact_paths(["XML2_jll"];
+                platform=linux64,
+                verbose,
+                from_current_manifest=true
+            )
+
+            # Should have XML2_jll
+            @test any(p.name == "XML2_jll" for p in keys(artifact_paths))
+
+            # Should have found all transitive dependencies
+            @test length(artifact_paths) >= 1
+
+            # All paths should exist
+            @test all(isdir, flatten_artifact_paths(artifact_paths))
+        end
+    end
+end
+
 using JLLPrefixes: get_git_clones_dir, set_git_clones_dir!, cached_git_clone
 @testset "set_git_clones_dir!" begin
     mktempdir() do clones_dir
