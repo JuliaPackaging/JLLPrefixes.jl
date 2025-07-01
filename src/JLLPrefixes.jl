@@ -112,18 +112,30 @@ function collect_artifact_metas(dependencies::Vector{PkgSpec};
             pkg_entry = find_manifest_entry(dep)
             # If this dependency is not yet resolved, look in the manifest
             if !dep_is_resolved(dep)
-                # If our manifest already has a mapping for this dependency, just use that.
+                # If our manifest already has a mapping for this dependency, just use that,
                 if pkg_entry !== nothing
+
+                    # If `dep` has a version set, keep that, don't inherit from manifest
+                    version = pkg_entry.version
+                    if dep.version !== nothing && dep.version != Pkg.Types.VersionSpec()
+                        version = dep.version
+                    end
+
                     dep = PackageSpec(;
                         name = pkg_entry.name,
                         uuid = pkg_entry.uuid,
-                        version = pkg_entry.version,
+                        version,
+                        # We know that `dep` has no `tree_hash` or `path`/`repo`, so inherit here.
                         tree_hash = pkg_entry.tree_hash,
                         path = pkg_entry.path,
                         repo = pkg_entry.repo,
                     )
-                elseif dep.uuid !== nothing && Pkg.Types.is_stdlib(dep.uuid) && dep.version != Pkg.Types.VersionSpec()
-                    # Otherwise, if it's an stdlib, use that
+                end
+
+                # If it's an stdlib, pre-emptively get the addable spec
+                if dep.uuid !== nothing
+                end
+                if dep.uuid !== nothing && Pkg.Types.is_stdlib(dep.uuid) && dep.version != Pkg.Types.VersionSpec()
                     dep = get_addable_spec(dep.name, dep.version; ctx)
                 end
             end
@@ -136,8 +148,49 @@ function collect_artifact_metas(dependencies::Vector{PkgSpec};
         end
         dependencies_names = [d.name for d in dependencies]
 
-        # Add all dependencies to our project.
-        Pkg.add(ctx, dependencies; platform, io=pkg_io, julia_version=julia_version)
+        function is_satisfied(dep)
+            # If we don't even really know what `dep` is, then yes it's unsatisfied.
+            if dep.uuid === nothing
+                return false
+            end
+
+            # If `dep` doesn't appear in our current manifest at all, it's unsatisfied
+            if dep.uuid ∉ keys(ctx.env.manifest.deps)
+                return false
+            end
+            pkg_entry = ctx.env.manifest.deps[dep.uuid]
+
+            # It needs to have a treehash, ask the registry for one if we don't have one.
+            if dep.tree_hash === nothing
+                # Interrogate the registry to determine the correct treehash, if we can.
+                Pkg.Operations.load_tree_hash!(ctx.registries, dep, nothing)
+            end
+
+            # If `pkg_entry` doesn't have a `tree_hash`, load one up:
+            if pkg_entry.tree_hash === nothing
+                pkg_entry_spec = PackageSpec(;
+                    name = pkg_entry.name,
+                    uuid = pkg_entry.uuid,
+                    version = pkg_entry.version,
+                    path = pkg_entry.path,
+                    repo = pkg_entry.repo,
+                )
+                Pkg.Operations.load_tree_hash!(ctx.registries, pkg_entry_spec, nothing)
+
+                # If these don't match, return false
+                if pkg_entry_spec.tree_hash != dep.tree_hash
+                    return false
+                end
+            end
+
+            # Finally, it needs to actually be installed
+            return isdir(Pkg.Operations.find_installed(dep.name, dep.uuid, dep.tree_hash))
+        end
+
+        # If we have any unsatisfied dependencies, run `Pkg.add()`.
+        if !all(is_satisfied.(dependencies))
+            Pkg.add(ctx, dependencies; platform, io=pkg_io, julia_version=julia_version)
+        end
 
         # On Julia v1.6, `Pkg.add()` doesn't mutate `dependencies`, so we can't use the `UUID`
         # that was found during resolution there.  Instead, we'll make use of `ctx.env` to figure
@@ -155,24 +208,24 @@ function collect_artifact_metas(dependencies::Vector{PkgSpec};
                 uuid,
                 tree_hash=pkg.tree_hash,
                 path=pkg.path,
+                version=pkg.version,
             ) for (uuid, pkg) in ctx.env.manifest if uuid ∈ installed_jll_uuids
         ]
 
         # Check for stdlibs lurking in the installed JLLs
         stdlib_pkgspecs = PkgSpec[]
         for dep in installed_jlls
-            # Check for dependencies that didn't actually get installed (typically stdlibs)
+            # Check for dependencies that Pkg.add() added that didn't actually get installed (typically stdlibs)
             if dep.tree_hash === nothing && dep.path === nothing
                 # Figure out what version this stdlib _should_ be at for this version
-                dep.version = stdlib_version(dep.uuid, julia_version)
+                dep.version = @something(dep.version, stdlib_version(dep.uuid, julia_version))
 
-                # Interrogate the registry to determine the correct treehash
-                Pkg.Operations.load_tree_hash!(ctx.registries, dep, nothing)
-
-                # We'll still use `Pkg.add()` to install the version we want, even though
-                # we've used the above two lines to figure out the treehash, so construct
-                # an addable spec that will get the correct bits down on disk.
-                push!(stdlib_pkgspecs, get_addable_spec(dep.name, dep.version; verbose))
+                if !is_satisfied(dep)
+                    # If this isn't installed, we'll use `Pkg.add()` to install the version
+                    # we want (now that we know the treehash), so construct an addable spec
+                    # that will get the correct bits down on disk.
+                    push!(stdlib_pkgspecs, get_addable_spec(dep.name, dep.version; verbose))
+                end
             end
         end
 
