@@ -11,6 +11,7 @@ const linux64_to_linux64 = Platform("x86_64", "linux"; target_arch="x86_64", tar
 if Sys.iswindows()
     JLLPrefixes.set_git_clones_dir!(mktempdir())
 end
+pkg_depot = mktempdir()
 
 @testset "JLL collection" begin
     function check_zstd_jll(zstd_pkgspec, zstd_artifacts)
@@ -25,7 +26,7 @@ end
 
     @testset "Zstd_jll (native)" begin
         # Start with a simple JLL with no dependencies
-        artifact_paths = collect_artifact_paths(["Zstd_jll"]; verbose)
+        artifact_paths = collect_artifact_paths(["Zstd_jll"]; pkg_depot, verbose)
 
         # There was only one JLL downloaded, and it was Zstd_jll
         @test length(artifact_paths) == 1
@@ -36,7 +37,7 @@ end
     # Do another simple JLL installation, but this time for a few different architectures
     for platform in [Platform("aarch64", "linux"), Platform("x86_64", "macos"), Platform("i686", "windows")]
         @testset "Zstd_jll ($(platform))" begin
-            artifact_paths = collect_artifact_paths(["Zstd_jll"]; platform, verbose)
+            artifact_paths = collect_artifact_paths(["Zstd_jll"]; platform, pkg_depot, verbose)
             check_zstd_jll(first(artifact_paths)...)
 
             # Ensure that `platform` is not mutated
@@ -60,7 +61,7 @@ end
 
     # Test that we can request a particular version of Zstd_jll
     @testset "Zstd_jll ($(linux64), v1.4.2+0)" begin
-        artifact_paths = collect_artifact_paths([PkgSpec(;name="Zstd_jll", version=v"1.4.2+0")]; platform=linux64, verbose)
+        artifact_paths = collect_artifact_paths([PkgSpec(;name="Zstd_jll", version=v"1.4.2+0")]; platform=linux64, pkg_depot, verbose)
 
         # There was only one JLL downloaded, and it was Zstd_jll
         @test length(artifact_paths) == 1
@@ -78,6 +79,7 @@ end
         artifact_paths = collect_artifact_paths(
             [PkgSpec(;name="XML2_jll", version=v"2.9.12+0")];
             platform=linux64,
+            pkg_depot,
             verbose,
         )
 
@@ -94,6 +96,7 @@ end
                 [PkgSpec(;name="Zlib_jll", version=v"1.2.11+3")];
                 platform=linux64,
                 project_dir,
+                pkg_depot,
                 verbose,
             )
             zlib_path = only(only(values(artifact_paths)))
@@ -103,15 +106,85 @@ end
                 [PkgSpec(;name="XML2_jll", version=v"2.9.12+0")];
                 platform=linux64,
                 project_dir,
+                pkg_depot,
                 verbose,
             )
             @test zlib_path ∈ only(values(artifact_paths))
+        end
+
+        # Next, test that the Project.toml is actually untouched if all dependencies already
+        # exist within a given project.
+        mktempdir() do project_dir
+            # Install XML2_jll
+            collect_artifact_paths([PkgSpec(;name="XML2_jll")]; platform=linux64, project_dir, pkg_depot)
+
+            project_path = joinpath(project_dir, "Project.toml")
+            project_content = read(project_path)
+            cp(project_path, string(project_path, ".orig"))
+
+            manifest_path = joinpath(project_dir, "Manifest.toml")
+            manifest_content = read(manifest_path)
+            cp(manifest_path, string(manifest_path, ".orig"))
+
+            function ensure_unchanged(;show::Bool = true)
+                project_new_content = read(project_path)
+                if project_new_content != project_content
+                    if show
+                        @warn("Showing Project.toml diff")
+                        run(ignorestatus(`diff $(project_path).orig $(project_path)`))
+                    end
+                    return false
+                end
+
+                manifest_new_content = read(manifest_path)
+                if manifest_new_content != manifest_content
+                    if show
+                        @warn("Showing Manifest.toml diff")
+                        run(ignorestatus(`diff $(manifest_path).orig $(manifest_path)`))
+                    end
+                    return false
+                end
+
+                # Reset so future runs don't get clobbered
+                cp(string(project_path, ".orig"), project_path; force=true)
+                cp(string(manifest_path, ".orig"), manifest_path; force=true)
+
+                return true
+            end
+
+            artifact_paths = collect_artifact_paths(
+                [PkgSpec(;name="XML2_jll")];
+                platform=linux64,
+                project_dir,
+                pkg_depot,
+                verbose,
+            )
+            @test ensure_unchanged()
+
+            artifact_paths = collect_artifact_paths(
+                [PkgSpec(;name="Zlib_jll")];
+                platform=linux64,
+                project_dir,
+                pkg_depot,
+                verbose,
+            )
+            @test ensure_unchanged()
+
+            # Purposefully install an old version
+            artifact_paths = collect_artifact_paths(
+                [PkgSpec(;name="Zlib_jll", version=v"1.2.12+0",)];
+                platform=linux64,
+                project_dir,
+                pkg_depot,
+                verbose,
+            )
+            @test !ensure_unchanged()
         end
     end
 
     # Install two packages that have nothing to do with eachother at the same time
     @testset "Bzip2_jll + Zstd_jll" begin
-        artifact_paths = collect_artifact_paths(["Bzip2_jll", "Zstd_jll"]; verbose)
+        artifact_paths = collect_artifact_paths(["Bzip2_jll", "Zstd_jll"]; pkg_depot, verbose)
         @test length(artifact_paths) == 2
         @test sort([p.name for p in keys(artifact_paths)]) == ["Bzip2_jll", "Zstd_jll"]
     end
@@ -125,7 +198,7 @@ end
     ]
     for (GMP_soversion, julia_version) in GMP_JULIA_VERSIONS
         @testset "GMP_jll (Julia $(julia_version))" begin
-            artifact_paths = collect_artifact_paths(["GMP_jll"]; platform=Platform("x86_64", "linux"; julia_version), verbose)
+            artifact_paths = collect_artifact_paths(["GMP_jll"]; platform=Platform("x86_64", "linux"; julia_version), pkg_depot, verbose)
             @test length(artifact_paths) == 1
             gmp_artifact_dir = only(first(values(artifact_paths)))
             @test isfile(joinpath(gmp_artifact_dir, "lib", "libgmp.so.$(GMP_soversion)"))
@@ -144,14 +217,14 @@ end
             @test_throws Pkg.Resolve.ResolverError collect_artifact_paths([
                 PkgSpec(;name="OpenBLAS_jll",  version=v"0.3.13"),
                 PkgSpec(;name="libblastrampoline_jll", version=v"5.1.1"),
-            ]; platform=Platform("x86_64", "linux"; julia_version), verbose)
+            ]; platform=Platform("x86_64", "linux"; julia_version), pkg_depot, verbose)
         end
 
         # So we must pass julia_version == nothing, as is the case in our `linux64` object
         artifact_paths = collect_artifact_paths([
             PkgSpec(;name="OpenBLAS_jll",  version=v"0.3.13"),
             PkgSpec(;name="libblastrampoline_jll", version=v"5.1.1"),
-        ]; platform=linux64, verbose)
+        ]; platform=linux64, pkg_depot, verbose)
         @test length(flatten_artifact_paths(artifact_paths)) == 3
         @test sort([p.name for p in keys(artifact_paths)]) == ["OpenBLAS_jll", "libblastrampoline_jll"]
     end
@@ -161,7 +234,7 @@ end
     @testset "Platform Incompatibility" begin
         @test_logs (:warn, r"Dependency Libuuid_jll does not have a mapping for artifact Libuuid for platform") begin
             # This test _must_ be verbose, so we catch the appropriate logs
-            artifact_paths = collect_artifact_paths(["Libuuid_jll"]; platform=Platform("x86_64", "macos"), verbose=true)
+            artifact_paths = collect_artifact_paths(["Libuuid_jll"]; platform=Platform("x86_64", "macos"), pkg_depot, verbose=true)
             @test only(keys(artifact_paths)).name == "Libuuid_jll"
             @test isempty(flatten_artifact_paths(artifact_paths))
         end
@@ -174,7 +247,7 @@ end
             "libass_jll",
             "wget_jll",
             "Zlib_jll"
-        ]; platform=linux64, verbose)
+        ]; platform=linux64, pkg_depot, verbose)
         # Get the Zlib_jll artifact name:
         zlib_artifact_path = only(only([paths for (pkg, paths) in artifact_paths if pkg.name == "Zlib_jll"]))
 
@@ -198,13 +271,13 @@ end
             ),
         )
 
-        autoconf_path = only(flatten_artifact_paths(collect_artifact_paths([special_autoconf_pkgspec]; platform=linux64, verbose)))
+        autoconf_path = only(flatten_artifact_paths(collect_artifact_paths([special_autoconf_pkgspec]; platform=linux64, pkg_depot, verbose)))
 
         # Test that if we have a special version of a JLL, it gets resolved as a dependency of another JLL:
         artifact_paths = collect_artifact_paths([
             special_autoconf_pkgspec,
             PkgSpec(;name="automake_jll"),
-        ]; platform=linux64, verbose=true)
+        ]; platform=linux64, pkg_depot, verbose=true)
 
         for (pkg, paths) in artifact_paths
             @test autoconf_path ∈ paths
@@ -222,7 +295,7 @@ end
     mktempdir() do depot
         for strategy in installer_strategies
             mktempdir() do prefix
-                artifact_paths = collect_artifact_paths(["FFMPEG_jll"]; verbose, pkg_depot=depot)
+                artifact_paths = collect_artifact_paths(["FFMPEG_jll"]; pkg_depot=depot, verbose)
                 @testset "$strategy strategy" begin
                     deploy_artifact_paths(prefix, artifact_paths; strategy)
 
@@ -257,7 +330,7 @@ end
             version=v"2.38.0+4",
             #tree_hash=Base.SHA1("ffa0762c5e00e109c88f820b3e15fca842ffa808"),
         ),
-    ]; platform=linux64_to_linux64, verbose)
+    ]; platform=linux64_to_linux64, pkg_depot, verbose)
 
     # Test that we get precisely the right Binutils_jll version.
     # X-ref: https://github.com/JuliaBinaryWrappers/Binutils_jll.jl/blob/Binutils-v2.38.0%2B4/Artifacts.toml#L683-L690
@@ -270,7 +343,7 @@ end
             name="Zlib_jll",
             version=v"1.2.12+0",
         ),
-    ]; platform=linux64_to_linux64, verbose)
+    ]; platform=linux64_to_linux64, pkg_depot, verbose)
     # X-ref: https://github.com/JuliaBinaryWrappers/Zlib_jll.jl/blob/9f5383c83cc4ecfb070381521df24eae13fff67a/Artifacts.toml#L110-L114
     @test any(basename.(only([v for (k, v) in artifact_paths if k.name == "Zlib_jll"])) .== Ref("53e6c375d00db870bf575afc992c03c54cba1d7e"))
 end
@@ -284,7 +357,7 @@ end
                 source="https://github.com/JuliaBinaryWrappers/Binutils_jll.jl"
             ),
         ),
-    ]; platform=linux64_to_linux64, verbose)
+    ]; platform=linux64_to_linux64, pkg_depot, verbose)
     @test any(basename.(only([v for (k, v) in artifact_paths if k.name == "Binutils_jll"])) .== "cfacb1560e678d1d058d397d4b792f0d525ce5e1")
 end
 

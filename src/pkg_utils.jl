@@ -69,6 +69,7 @@ function collect_jll_uuids(manifest::Pkg.Types.Manifest, dependencies::Set{UUID}
             end
         end
     end
+    # Are we already converged?  If not, recurse with our new jlls list.
     if jlls == dependencies
         return jlls
     else
