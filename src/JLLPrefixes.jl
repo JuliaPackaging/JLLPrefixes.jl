@@ -183,6 +183,11 @@ function collect_artifact_metas(dependencies::Vector{PkgSpec};
                 end
             end
 
+            # If this STILL is null, we can't tell if it's satisfied, so we'll have to `add()` it.
+            if dep.tree_hash === nothing
+                return false
+            end
+
             # Finally, it needs to actually be installed
             return isdir(Pkg.Operations.find_installed(dep.name, dep.uuid, dep.tree_hash))
         end
@@ -238,16 +243,15 @@ function collect_artifact_metas(dependencies::Vector{PkgSpec};
         for dep in installed_jlls
             if dep.path !== nothing
                 dep_path = dep.path
-            else
+            elseif dep.tree_hash !== nothing
                 dep_path = Pkg.Operations.find_installed(dep.name, dep.uuid, dep.tree_hash)
-            end
-            dep_dep_uuids = [uuid for (_, uuid) in ctx.env.manifest[dep.uuid].deps if any(jll.uuid == uuid for jll in installed_jlls)]
-
-            # Skip dependencies that didn't get installed, but warn as this should never happen
-            if dep_path === nothing
-                @warn("Dependency $(dep.name) not installed, despite our best efforts!")
+            else
+                # Skip dependencies that didn't get installed, but warn as this should never happen
+                @warn("Dependency $(dep.name) not installed, despite our best efforts!", dep)
                 continue
             end
+
+            dep_dep_uuids = [uuid for (_, uuid) in ctx.env.manifest[dep.uuid].deps if any(jll.uuid == uuid for jll in installed_jlls)]
 
             # Load the Artifacts.toml file
             artifacts_toml = joinpath(dep_path, "Artifacts.toml")
