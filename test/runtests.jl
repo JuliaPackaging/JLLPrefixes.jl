@@ -170,7 +170,18 @@ pkg_depot = mktempdir()
             )
             @test ensure_unchanged()
 
-            # Purposefully install an old version
+            # Attempt to install an old version while we don't allow installing:
+            @test_throws ErrorException collect_artifact_paths(
+                [PkgSpec(;name="Zlib_jll", version=v"1.2.12+0",)];
+                platform=linux64,
+                project_dir,
+                pkg_depot,
+                verbose,
+                allow_install=false,
+            )
+            @test ensure_unchanged()
+
+            # Next, allow it to install and modify the project.
             artifact_paths = collect_artifact_paths(
                 [PkgSpec(;name="Zlib_jll", version=v"1.2.12+0",)];
                 platform=linux64,

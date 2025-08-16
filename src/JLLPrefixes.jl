@@ -47,7 +47,8 @@ function collect_artifact_metas(dependencies::Vector{PkgSpec};
                                 platform::AbstractPlatform = HostPlatform(),
                                 project_dir::AbstractString = mktempdir(),
                                 pkg_depot::AbstractString = Pkg.depots1(),
-                                verbose::Bool = false)
+                                verbose::Bool = false,
+                                allow_install::Bool = true)
     # Get julia version specificity, if it exists, from the `Platform` object
     julia_version = nothing
     if haskey(platform, "julia_version")
@@ -194,7 +195,12 @@ function collect_artifact_metas(dependencies::Vector{PkgSpec};
 
         # If we have any unsatisfied dependencies, run `Pkg.add()`.
         if !all(is_satisfied.(dependencies))
-            Pkg.add(ctx, dependencies; platform, io=pkg_io, julia_version=julia_version)
+            if allow_install
+                Pkg.add(ctx, dependencies; platform, io=pkg_io, julia_version=julia_version)
+            else
+                dep_names = join([dep.name for dep in dependencies], ", ")
+                error("Unsatisfied dependencies found: $(dep_names)")
+            end
         end
 
         # On Julia v1.6, `Pkg.add()` doesn't mutate `dependencies`, so we can't use the `UUID`
@@ -236,7 +242,12 @@ function collect_artifact_metas(dependencies::Vector{PkgSpec};
 
         # Re-install stdlib dependencies, but this time with `julia_version = nothing`
         if !isempty(stdlib_pkgspecs)
-            Pkg.add(ctx, stdlib_pkgspecs; io=pkg_io, julia_version=nothing)
+            if allow_install
+                Pkg.add(ctx, stdlib_pkgspecs; io=pkg_io, julia_version=nothing)
+            else
+                dep_names = join([dep.name for dep in dependencies], ", ")
+                error("Unsatisfied dependencies found: $(dep_names)")
+            end
         end
 
         # Load their Artifacts.toml files
