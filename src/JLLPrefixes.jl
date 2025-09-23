@@ -66,7 +66,7 @@ function collect_artifact_metas(dependencies::Vector{PkgSpec};
 
     # We're going to create a project and install all dependent packages within
     # it, then create symlinks from those installed products to our build prefix
-    deps_project = joinpath(project_dir, "Project.toml")
+    deps_project = Pkg.Types.projectfile_path(project_dir)
     with_no_pkg_handrails() do; with_no_auto_precompilation() do; with_depot_path(pkg_depot) do; Pkg.activate(deps_project) do
         pkg_io = verbose ? stdout : devnull
 
@@ -115,7 +115,6 @@ function collect_artifact_metas(dependencies::Vector{PkgSpec};
             if !dep_is_resolved(dep)
                 # If our manifest already has a mapping for this dependency, just use that,
                 if pkg_entry !== nothing
-
                     # If `dep` has a version set, keep that, don't inherit from manifest
                     version = pkg_entry.version
                     if dep.version !== nothing && dep.version != Pkg.Types.VersionSpec()
@@ -131,11 +130,10 @@ function collect_artifact_metas(dependencies::Vector{PkgSpec};
                         path = pkg_entry.path,
                         repo = pkg_entry.repo,
                     )
+                    @debug("Found pre-existing dependency in manifest", name=pkg_entry.name)
                 end
 
                 # If it's an stdlib, pre-emptively get the addable spec
-                if dep.uuid !== nothing
-                end
                 if dep.uuid !== nothing && Pkg.Types.is_stdlib(dep.uuid) && dep.version != Pkg.Types.VersionSpec()
                     dep = get_addable_spec(dep.name, dep.version; ctx)
                 end
@@ -152,11 +150,13 @@ function collect_artifact_metas(dependencies::Vector{PkgSpec};
         function is_satisfied(dep)
             # If we don't even really know what `dep` is, then yes it's unsatisfied.
             if dep.uuid === nothing
+                @debug("Marking $(dep.name) as unsatisfied due to not having a UUID")
                 return false
             end
 
             # If `dep` doesn't appear in our current manifest at all, it's unsatisfied
             if dep.uuid ∉ keys(ctx.env.manifest.deps)
+                @debug("Marking $(dep.name) as unsatisfied due to not being in manifest")
                 return false
             end
             pkg_entry = ctx.env.manifest.deps[dep.uuid]
@@ -178,24 +178,38 @@ function collect_artifact_metas(dependencies::Vector{PkgSpec};
                 )
                 Pkg.Operations.load_tree_hash!(ctx.registries, pkg_entry_spec, nothing)
 
+                if pkg_entry_spec.tree_hash === nothing && pkg_entry_spec.path !== nothing && isdir(pkg_entry_spec.path)
+                    @debug("Marking $(dep.name) as satisfied via a direct path", pkg_entry_spec.path)
+                    return true
+                end
+
                 # If these don't match, return false
                 if pkg_entry_spec.tree_hash != dep.tree_hash
+                    @debug("Marking $(dep.name) as unsatisfied due having the wrong tree_hash", pkg_entry_spec.tree_hash, dep.tree_hash)
                     return false
                 end
             end
 
             # If this STILL is null, we can't tell if it's satisfied, so we'll have to `add()` it.
             if dep.tree_hash === nothing
+                @debug("Marking $(dep.name) as unsatisfied due to not having a tree_hash")
                 return false
             end
 
             # Finally, it needs to actually be installed
-            return isdir(Pkg.Operations.find_installed(dep.name, dep.uuid, dep.tree_hash))
+            if !isdir(Pkg.Operations.find_installed(dep.name, dep.uuid, dep.tree_hash))
+                @debug("Marking $(dep.name) as unsatisfied due to not being installed")
+                return false
+            end
+
+            @debug("Marking $(dep.name) as satisfied")
+            return true
         end
 
         # If we have any unsatisfied dependencies, run `Pkg.add()`.
         if !all(is_satisfied.(dependencies))
             if allow_install
+                @debug("Pkg.add()", pkgs=dependencies, platform)
                 Pkg.add(ctx, dependencies; platform, io=pkg_io, julia_version=julia_version)
             else
                 dep_names = join([dep.name for dep in dependencies], ", ")
@@ -327,20 +341,7 @@ function pkg_dep_match(pkg, dep)
     return pkg.name == dep.name
 end
 
-"""
-    collect_artifact_paths(dependencies::Vector;
-                           platform = HostPlatform(),
-                           verbose = false)
-
-A convenience wrapper around `collect_artifact_metas()` that will peel the
-`meta` objects, walk the dependency tree, and return a dictionary mapping
-each package in `dependencies` to a flattened vector of artifact path
-directories.  Use `flatten_artifact_paths()` to further flatten the tree
-into just a single vector.
-"""
-function collect_artifact_paths(dependencies::Vector{PackageSpec}; kwargs...)
-    meta_mappings = collect_artifact_metas(dependencies; kwargs...)
-
+function collect_artifact_paths(meta_mappings::Dict, dependencies::Vector{PackageSpec})
     function collect_dep_paths(pkg::PackageSpec, paths::Vector{String})
         # First, the direct artifact paths:
         append!(paths, meta_mappings[pkg]["paths"])
@@ -366,6 +367,22 @@ function collect_artifact_paths(dependencies::Vector{PackageSpec}; kwargs...)
         collected_paths[pkg] = collect_dep_paths(pkg, String[])
     end
     return collected_paths
+end
+
+"""
+    collect_artifact_paths(dependencies::Vector;
+                           platform = HostPlatform(),
+                           verbose = false)
+
+A convenience wrapper around `collect_artifact_metas()` that will peel the
+`meta` objects, walk the dependency tree, and return a dictionary mapping
+each package in `dependencies` to a flattened vector of artifact path
+directories.  Use `flatten_artifact_paths()` to further flatten the tree
+into just a single vector.
+"""
+function collect_artifact_paths(dependencies::Vector{PackageSpec}; kwargs...)
+    meta_mappings = collect_artifact_metas(dependencies; kwargs...)
+    return collect_artifact_paths(meta_mappings, dependencies)
 end
 function collect_artifact_paths(pkg_names::Vector{<:AbstractString}; kwargs...)
     return collect_artifact_paths(
