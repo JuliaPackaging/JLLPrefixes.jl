@@ -372,6 +372,24 @@ end
     @test any(basename.(only([v for (k, v) in artifact_paths if k.name == "Binutils_jll"])) .== "cfacb1560e678d1d058d397d4b792f0d525ce5e1")
 end
 
+@testset "path-provided sources" begin
+    using BinaryBuilderGitUtils
+    mktempdir() do dir
+        clone_dir = joinpath(dir, "clone")
+        clone!("https://github.com/JuliaBinaryWrappers/Binutils_jll.jl", clone_dir)
+        repo_dir = joinpath(dir, "checkout")
+        checkout!(clone_dir, repo_dir, "89943b0c48834fb291b24fb73d90b821185ed44b")
+
+        artifact_paths = collect_artifact_paths([
+            PkgSpec(;
+                name="Binutils_jll",
+                path=repo_dir,
+            ),
+        ]; platform=linux64_to_linux64, pkg_depot, verbose)
+        @test any(basename.(only([v for (k, v) in artifact_paths if k.name == "Binutils_jll"])) .== "cfacb1560e678d1d058d397d4b792f0d525ce5e1")
+    end
+end
+
 using JLLPrefixes: get_git_clones_dir, set_git_clones_dir!, cached_git_clone
 @testset "set_git_clones_dir!" begin
     mktempdir() do clones_dir
