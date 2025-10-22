@@ -159,15 +159,19 @@ function collect_artifact_metas(dependencies::Vector{PkgSpec};
                 @debug("Marking $(dep.name) as unsatisfied due to not being in manifest")
                 return false
             end
-            pkg_entry = ctx.env.manifest.deps[dep.uuid]
 
             # It needs to have a treehash, ask the registry for one if we don't have one.
             if dep.tree_hash === nothing
+                if (dep.repo.source !== nothing && dep.repo.rev !== nothing)
+                    @debug("Marking $(dep.name) as unsatisfied due to using repo/rev")
+                    return false
+                end
                 # Interrogate the registry to determine the correct treehash, if we can.
                 Pkg.Operations.load_tree_hash!(ctx.registries, dep, nothing)
             end
 
             # If `pkg_entry` doesn't have a `tree_hash`, load one up:
+            pkg_entry = ctx.env.manifest.deps[dep.uuid]
             if pkg_entry.tree_hash === nothing
                 pkg_entry_spec = PackageSpec(;
                     name = pkg_entry.name,
