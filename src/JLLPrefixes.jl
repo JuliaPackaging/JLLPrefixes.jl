@@ -352,7 +352,12 @@ function collect_artifact_paths(meta_mappings::Dict, dependencies::Vector{Packag
 
         # Next, recurse on the dependencies
         for dep_uuid in meta_mappings[pkg]["dep_uuids"]
-            pkg = only([pkg for (pkg, _) in meta_mappings if Base.UUID(pkg.uuid) == dep_uuid])
+            pkgs = [pkg for (pkg, _) in meta_mappings if Base.UUID(pkg.uuid) == dep_uuid]
+            if isempty(pkgs)
+                @warn("Unable to find installed artifact for $(dep_uuid)")
+                continue
+            end
+            pkg = only(pkgs)
             collect_dep_paths(pkg, paths)
         end
         return paths
