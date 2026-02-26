@@ -19,9 +19,17 @@ else
 end
 
 if isdefined(Pkg, :Registry) && isdefined(Pkg.Registry, :registry_info)
-    const registry_info = Pkg.Registry.registry_info
+    if VERSION >= v"1.13.0-"
+        const registry_info = Pkg.Registry.registry_info
+    else
+        function registry_info(reg, pkg_entry)
+            return Pkg.Registry.registry_info(pkg_entry)
+        end
+    end
 elseif isdefined(Pkg, :RegistryHandling) && isdefined(Pkg.RegistryHandling, :registry_info)
-    const registry_info = Pkg.RegistryHandling.registry_info
+    function registry_info(reg, pkg_entry)
+        return Pkg.RegistryHandling.registry_info(pkg_entry)
+    end
 end
 
 if isdefined(Pkg, :respect_sysimage_versions)
@@ -107,7 +115,7 @@ function get_addable_spec(name::AbstractString, version::VersionNumber;
             continue
         end
 
-        pkg_info = registry_info(reg[uuid])
+        pkg_info = registry_info(reg, reg[uuid])
         if pkg_info.repo !== nothing
             push!(repo_urls, pkg_info.repo)
         end
