@@ -96,20 +96,22 @@ function get_addable_spec(name::AbstractString, version::VersionNumber;
     # First, resolve the UUID
     uuid = first(Pkg.Types.registry_resolve!(ctx.registries, Pkg.Types.PackageSpec(;name))).uuid
 
-    # Ensure that all fields of `version` are present, e.g. if there's no build number insert one:
+    # A version without a build number names either a version registered exactly so
+    # (as BinaryBuilder2 registers them), or its `+0` build (as BinaryBuilder registers them).
+    candidate_versions = [version]
     if isempty(version.build)
-        version = VersionNumber(
+        push!(candidate_versions, VersionNumber(
             version.major,
             version.minor,
             version.patch,
             (),
             (UInt64(0),),
-        )
+        ))
     end
 
     # Next, determine the tree hash from the registry
     repo_urls = Set{String}()
-    tree_hashes = Set{Base.SHA1}()
+    version_infos = Dict{VersionNumber,Vector{Base.SHA1}}()
     for reg in ctx.registries
         if !haskey(reg, uuid)
             continue
@@ -120,12 +122,18 @@ function get_addable_spec(name::AbstractString, version::VersionNumber;
             push!(repo_urls, pkg_info.repo)
         end
         if pkg_info.version_info !== nothing
-            if haskey(pkg_info.version_info, version)
-                version_info = pkg_info.version_info[version]
-                push!(tree_hashes, version_info.git_tree_sha1)
+            for v in candidate_versions
+                if haskey(pkg_info.version_info, v)
+                    push!(get!(version_infos, v, Base.SHA1[]), pkg_info.version_info[v].git_tree_sha1)
+                end
             end
         end
     end
+    idx = findfirst(v -> haskey(version_infos, v), candidate_versions)
+    if idx !== nothing
+        version = candidate_versions[idx]
+    end
+    tree_hashes = Set{Base.SHA1}(get(version_infos, version, Base.SHA1[]))
 
     if isempty(tree_hashes)
         @error("Unable to find dependency!",

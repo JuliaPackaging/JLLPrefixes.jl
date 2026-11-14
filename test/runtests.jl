@@ -406,3 +406,17 @@ using JLLPrefixes: get_git_clones_dir, set_git_clones_dir!, cached_git_clone
         @test get_git_clones_dir() == old_clones_dir
     end
 end
+
+@testset "get_addable_spec" begin
+    # Zlib_jll v1.3.1 was registered by BinaryBuilder as `1.3.1+0`; v1.4.1 was registered
+    # by BinaryBuilder2, without a build number.
+    for (version, tree_hash) in ((v"1.3.1", nothing),
+                                 (v"1.4.1", Base.SHA1("5f97e3f02e30c4ae44114e7497bed572138f08ca")))
+        spec = JLLPrefixes.get_addable_spec("Zlib_jll", version)
+        @test spec.repo.rev !== nothing
+        if tree_hash !== nothing
+            @test spec.tree_hash == tree_hash
+        end
+    end
+    @test_throws ErrorException JLLPrefixes.get_addable_spec("Zlib_jll", v"0.0.1")
+end
