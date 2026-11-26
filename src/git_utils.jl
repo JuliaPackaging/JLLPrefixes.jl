@@ -1,5 +1,8 @@
 using Git, SHA, Scratch, Preferences
 
+git_clone_path(url::String, clones_dir::String = get_git_clones_dir()) =
+    joinpath(clones_dir, string(basename(url), "-", bytes2hex(sha256(url))))
+
 iscommit(repo::String, commit::String) = success(git(["-C", repo, "cat-file", "-e", commit]))
 
 """
@@ -17,7 +20,7 @@ function cached_git_clone(url::String;
         push!(quiet_args, "-q")
     end
 
-    repo_path = joinpath(clones_dir, string(basename(url), "-", bytes2hex(sha256(url))))
+    repo_path = git_clone_path(url, clones_dir)
     if isfile(joinpath(repo_path, "HEAD"))
         if verbose
             @info("Using cached git repository", url, repo_path)
@@ -55,17 +58,25 @@ The return value is the commit SHA as a `String`, if the corresponding revision 
 `nothing` otherwise.
 """
 function get_commit_sha(url::String, tree_hash::Base.SHA1; verbose::Bool=false)
-    repo_path = cached_git_clone(url; verbose)
+    # Search an existing clone first, and only fetch if it lacks `tree_hash`
+    repo_path = git_clone_path(url)
+    if isfile(joinpath(repo_path, "HEAD"))
+        commit_hash_str = find_commit_with_tree(repo_path, tree_hash)
+        if commit_hash_str !== nothing
+            return commit_hash_str
+        end
+    end
+    return find_commit_with_tree(cached_git_clone(url; verbose), tree_hash)
+end
 
+function find_commit_with_tree(repo_path::String, tree_hash::Base.SHA1)
     tree_hash_str = bytes2hex(tree_hash.bytes)
-    commit_hash_str = nothing
     open(git(["-C", repo_path, "log", "--all", "--pretty=format:%T %H"])) do io
         for line in readlines(io)
             if startswith(line, tree_hash_str)
-                commit_hash_str = split(line, " ")[2]
-                break
+                return String(split(line, " ")[2])
             end
         end
+        return nothing
     end
-    return commit_hash_str
 end
